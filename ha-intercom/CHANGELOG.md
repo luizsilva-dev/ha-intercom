@@ -1,5 +1,11 @@
 # Changelog — HA Intercom
 
+## 1.3.8
+- UX: removido seletor "Chamando de:" da aba Chamadas
+- UX: cada card de dispositivo tem um botão com o apelido do dispositivo a ser chamado ("📞 Apelido")
+- UX: adicionado "Meu dispositivo" na aba Configurações (salvo em localStorage); esse dispositivo é o remetente de todas as chamadas
+- Correção áudio: `ontrack` agora usa `e.track` diretamente (mais confiável que `e.streams[0]`) e chama `audio.play()` explicitamente para evitar bloqueio de autoplay em mobile
+
 ## 1.3.7
 - Correção UX: painel de chamadas redesenhado — cada card agora representa o DESTINO (quem vai receber a chamada)
 - Adicionado seletor "📲 Chamando de:" para escolher explicitamente seu próprio dispositivo antes de ligar

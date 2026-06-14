@@ -582,7 +582,9 @@ async function calleeConnect() {{
   pc.ontrack = e => {{
     const audio = document.getElementById('remote-audio');
     if (!audio.srcObject) audio.srcObject = new MediaStream();
-    e.streams[0]?.getTracks().forEach(t => audio.srcObject.addTrack(t));
+    audio.srcObject.addTrack(e.track);
+    audio.muted = false;
+    audio.play().catch(() => {{}});
   }};
   pc.oniceconnectionstatechange = () => {{
     if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
@@ -799,12 +801,6 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
   </div>
 
   <div class="section-title">Ligar para</div>
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;background:var(--surface);border-radius:var(--radius);padding:12px 16px;border:1px solid var(--border)">
-    <span style="font-size:.84rem;color:var(--text2);white-space:nowrap">📲 Chamando de:</span>
-    <select id="caller-select" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:.84rem;outline:none;flex:1">
-      <option value="">— selecione seu dispositivo —</option>
-    </select>
-  </div>
   <div class="device-grid" id="device-grid">
     <div class="empty-state">Carregando dispositivos...</div>
   </div>
@@ -836,6 +832,17 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
 
 <!-- TAB: Configurações -->
 <div class="main page" id="tab-settings">
+
+  <div class="section-title">Meu dispositivo</div>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:.82rem;color:var(--text2);margin-bottom:8px">Qual é o seu dispositivo neste aparelho?</div>
+      <select id="my-device-select" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-size:.86rem;outline:none;width:100%">
+        <option value="">— selecione —</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="saveMyDevice()" style="align-self:flex-end">💾 Salvar</button>
+  </div>
 
   <div class="section-title">Versão e atualização</div>
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-wrap:wrap">
@@ -951,11 +958,22 @@ async function initiateCall(caller, callee) {
   } catch { showToast('Erro de conexão', 'error'); }
 }
 
+function getMyDevice() {
+  return localStorage.getItem('intercom_my_device') || '';
+}
+
 function initiateCallTo(callee) {
-  const caller = document.getElementById('caller-select').value;
-  if (!caller) { showToast('Selecione seu dispositivo em "Chamando de:"', 'error'); return; }
-  if (caller === callee) { showToast('Selecione um dispositivo diferente do seu', 'error'); return; }
+  const caller = getMyDevice();
+  if (!caller) { showToast('Configure seu dispositivo na aba ⚙️ Configurações', 'error'); return; }
+  if (caller === callee) { showToast('Você não pode chamar a si mesmo', 'error'); return; }
   initiateCall(caller, callee);
+}
+
+function saveMyDevice() {
+  const val = document.getElementById('my-device-select').value;
+  if (!val) { showToast('Selecione um dispositivo', 'error'); return; }
+  localStorage.setItem('intercom_my_device', val);
+  showToast('✅ Dispositivo salvo: ' + val);
 }
 
 // ---- Device grid (calls tab) ----
@@ -968,36 +986,33 @@ async function renderDeviceGrid() {
     return;
   }
 
-  // Populate caller selector (preserve previous selection)
-  const sel = document.getElementById('caller-select');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">— selecione seu dispositivo —</option>' +
-    devices.map(d => {
-      const lbl = d.nickname || d.name;
-      return `<option value="${lbl}">${lbl}</option>`;
-    }).join('');
-  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
-  // Try to restore from localStorage
-  const saved = localStorage.getItem('intercom_my_device');
-  if (!sel.value && saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
-  sel.onchange = () => localStorage.setItem('intercom_my_device', sel.value);
+  // Populate "my device" selector in Settings tab
+  const myDev = getMyDevice();
+  const sel = document.getElementById('my-device-select');
+  if (sel) {
+    sel.innerHTML = '<option value="">— selecione —</option>' +
+      devices.map(d => {
+        const lbl = d.nickname || d.name;
+        return `<option value="${lbl}"${lbl === myDev ? ' selected' : ''}>${lbl}</option>`;
+      }).join('');
+  }
 
   // Each card = destination to call TO
   grid.innerHTML = devices.map(dev => {
     const label = dev.nickname || dev.name;
     const icon = dev.type === 'android' ? '📱' : '🔊';
-    const meta = (dev.room ? dev.room + ' · ' : '') + dev.type;
+    const room = dev.room ? ' · ' + dev.room : '';
     return `<div class="device-card" id="card-${label}">
       <div class="device-header">
         <span class="device-icon">${icon}</span>
         <div>
           <div class="device-name">${label}</div>
-          <div class="device-meta">${meta}</div>
+          <div class="device-meta">${dev.type}${room}</div>
         </div>
         <span class="status-dot" id="sdot-${label}"></span>
       </div>
       <div class="call-buttons">
-        <button class="call-btn" onclick="initiateCallTo('${label}')">📞 Ligar para este</button>
+        <button class="call-btn" onclick="initiateCallTo('${label}')">📞 ${label}</button>
       </div>
     </div>`;
   }).join('');
