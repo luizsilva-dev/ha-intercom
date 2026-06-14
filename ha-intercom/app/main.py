@@ -227,7 +227,10 @@ def get_call(call_id: str):
 
 @app.get("/")
 def index():
-    return PANEL_HTML
+    # X-Ingress-Path is set by HA Supervisor when proxying ingress traffic.
+    # Empty when accessed directly on port 8099.
+    ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
+    return PANEL_HTML.replace("__INGRESS_PATH__", ingress_path)
 
 
 PANEL_HTML = """<!DOCTYPE html>
@@ -440,9 +443,9 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
 <div class="toast" id="toast"></div>
 
 <script>
-// Use path-relative base so requests go through HA ingress proxy
-// regardless of whether accessed locally or via Nabu Casa remote UI.
-const BASE = window.location.pathname.replace(/\/$/, '').replace(/\/[^/]*$/, '') || '';
+// Injected server-side from X-Ingress-Path header.
+// Empty string when accessed directly on :8099; ingress prefix otherwise.
+const BASE = '__INGRESS_PATH__';
 
 // ---- Tab navigation ----
 function showTab(name) {
