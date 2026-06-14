@@ -63,8 +63,13 @@ def addon_info():
 @app.post("/api/addon/update")
 def addon_update():
     try:
-        resp = _supervisor_session_get().post("http://supervisor/addons/self/update", timeout=10)
-        return jsonify({"ok": resp.ok, "result": resp.json()})
+        resp = _supervisor_session_get().post("http://supervisor/addons/self/update", timeout=30)
+        body = resp.json()
+        if not resp.ok:
+            logger.error("Supervisor update rejected: %s %s", resp.status_code, body)
+            return jsonify({"ok": False, "error": body}), resp.status_code
+        logger.info("Supervisor update triggered: %s", body)
+        return jsonify({"ok": True, "result": body})
     except Exception as e:
         logger.error("Supervisor addon/update: %s", e)
         return jsonify({"error": str(e)}), 502

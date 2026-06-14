@@ -1,5 +1,10 @@
 # Changelog — HA Intercom
 
+## 1.3.1
+- Correção: adicionado `hassio_api: true` e `hassio_role: manager` para permitir chamadas à Supervisor API
+- Sem essas permissões o botão de atualização manual e o `auto_update` não conseguiam acionar o Supervisor
+- Log de erro detalhado no endpoint `/api/addon/update`
+
 ## 1.3.0
 - `panel_admin: false`: painel visível para todos os usuários (não só admins)
 - Página de atendimento WebRTC (`/call/<call_id>`) com UI de chamada recebida
