@@ -1,5 +1,5 @@
 name: HA Intercom
-version: "1.1.1"
+version: "1.2.0"
 slug: ha_intercom
 description: Bidirectional intercom between HA devices (Android app & Voice PE) via go2rtc WebRTC
 url: https://github.com/luizsilva-dev/ha-intercom
@@ -24,7 +24,7 @@ ports_description:
 homeassistant_api: true
 ingress: true
 ingress_port: 8099
-panel_icon: mdi:intercom
+panel_icon: mdi:phone-in-talk
 panel_title: Intercom
 options:
   devices: []
