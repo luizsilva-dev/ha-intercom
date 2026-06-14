@@ -32,10 +32,9 @@ COPY app/ /app/
 # Copy go2rtc base config
 COPY go2rtc.yaml /etc/go2rtc.yaml
 
-# Copy run script
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
-
-WORKDIR /app
-
-CMD ["/run.sh"]
+# Copy s6-overlay service definitions
+COPY rootfs/ /
+RUN chmod a+x \
+    /etc/s6-overlay/s6-rc.d/init-intercom/up \
+    /etc/s6-overlay/s6-rc.d/go2rtc/run \
+    /etc/s6-overlay/s6-rc.d/intercom-api/run
