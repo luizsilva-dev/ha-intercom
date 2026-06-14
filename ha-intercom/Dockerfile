@@ -24,7 +24,7 @@ RUN ARCH=$(uname -m) && \
 
 # Copy Python requirements and install
 COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 
 # Copy application
 COPY app/ /app/
