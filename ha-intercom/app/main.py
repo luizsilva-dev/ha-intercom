@@ -4,7 +4,7 @@ import logging
 import os
 import time
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 
 from ha_client import HAClient
 from intercom import CallState, IntercomManager
@@ -23,9 +23,22 @@ MAX_CALL_DURATION = int(os.environ.get("MAX_CALL_DURATION", "300"))
 DEVICES_PATH = "/data/intercom_devices.json"
 
 _start_time = time.time()
+_ingress_url: str = ""   # populated at first request or from Supervisor
 manager = IntercomManager(GO2RTC_URL, CALL_TIMEOUT, MAX_CALL_DURATION)
 ha = HAClient()
 
+
+def get_ingress_url() -> str:
+    """Return the full ingress URL from Supervisor API (cached)."""
+    global _ingress_url
+    if _ingress_url:
+        return _ingress_url
+    try:
+        resp = _supervisor_session_get().get("http://supervisor/addons/self/info", timeout=5)
+        _ingress_url = resp.json().get("data", {}).get("ingress_url", "").rstrip("/")
+    except Exception as e:
+        logger.warning("Could not fetch ingress_url: %s", e)
+    return _ingress_url
 
 # ---------------------------------------------------------------------------
 # Add-on self-management via Supervisor API
@@ -227,10 +240,174 @@ def get_call(call_id: str):
 
 @app.get("/")
 def index():
-    # X-Ingress-Path is set by HA Supervisor when proxying ingress traffic.
-    # Empty when accessed directly on port 8099.
     ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
     return PANEL_HTML.replace("__INGRESS_PATH__", ingress_path)
+
+
+@app.get("/call/<call_id>")
+def call_page(call_id: str):
+    """WebRTC answer page — opened when user taps 'Atender' on the notification."""
+    ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
+    call = manager.get_call(call_id)
+    stream = call.stream_name if call else f"intercom_{call_id}"
+    caller = call.caller if call else "?"
+    return _build_call_page(call_id, caller, stream, ingress_path)
+
+
+def _build_call_page(call_id: str, caller: str, stream_name: str, ingress_path: str) -> str:
+    base = ingress_path
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Chamada — HA Intercom</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:24px}}
+.avatar{{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#0d47a1,#03a9f4);
+  display:flex;align-items:center;justify-content:center;font-size:2.8rem;
+  box-shadow:0 0 0 8px rgba(3,169,244,.15),0 0 0 16px rgba(3,169,244,.07);animation:ring 1.5s ease-in-out infinite}}
+@keyframes ring{{0%,100%{{box-shadow:0 0 0 8px rgba(3,169,244,.15),0 0 0 16px rgba(3,169,244,.07)}}
+  50%{{box-shadow:0 0 0 12px rgba(3,169,244,.2),0 0 0 24px rgba(3,169,244,.08)}}}}
+.caller-name{{font-size:1.5rem;font-weight:500;text-align:center}}
+.call-status{{font-size:.9rem;color:#9aa0a6;text-align:center}}
+.actions{{display:flex;gap:32px;margin-top:8px}}
+.action-btn{{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;border:none;background:transparent}}
+.action-btn .circle{{width:68px;height:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.8rem;transition:transform .15s}}
+.action-btn:active .circle{{transform:scale(.92)}}
+.action-btn .label{{font-size:.78rem;color:#9aa0a6}}
+.btn-answer .circle{{background:#4caf50}}
+.btn-reject .circle{{background:#f44336}}
+.webrtc-section{{width:100%;max-width:480px;display:none}}
+.webrtc-section.active{{display:block}}
+video{{width:100%;border-radius:12px;background:#1c1f26}}
+.webrtc-controls{{display:flex;justify-content:center;margin-top:16px}}
+.btn-hangup{{background:#f44336;color:#fff;border:none;border-radius:24px;padding:12px 32px;font-size:1rem;cursor:pointer}}
+#status-msg{{font-size:.82rem;color:#9aa0a6;text-align:center;min-height:20px}}
+</style>
+</head>
+<body>
+<div class="avatar" id="avatar">📱</div>
+<div class="caller-name" id="caller-name">{caller}</div>
+<div class="call-status" id="call-status">Chamada recebida</div>
+<div id="status-msg"></div>
+
+<div class="actions" id="actions">
+  <button class="action-btn btn-answer" onclick="answerCall()">
+    <div class="circle">📞</div>
+    <div class="label">Atender</div>
+  </button>
+  <button class="action-btn btn-reject" onclick="rejectCall()">
+    <div class="circle">📵</div>
+    <div class="label">Rejeitar</div>
+  </button>
+</div>
+
+<div class="webrtc-section" id="webrtc-section">
+  <video id="remote-video" autoplay playsinline></video>
+  <div class="webrtc-controls">
+    <button class="btn-hangup" onclick="hangupCall()">📵 Encerrar</button>
+  </div>
+</div>
+
+<script>
+const BASE = '{base}';
+const CALL_ID = '{call_id}';
+const STREAM = '{stream_name}';
+let pc = null;
+
+async function answerCall() {{
+  document.getElementById('call-status').textContent = 'Conectando...';
+  document.getElementById('actions').style.display = 'none';
+  document.getElementById('avatar').style.animation = 'none';
+
+  try {{
+    // Answer via API
+    const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
+    if (!r.ok) throw new Error('Failed to answer');
+
+    // Request mic
+    const localStream = await navigator.mediaDevices.getUserMedia({{audio:true, video:false}});
+
+    // WebRTC via go2rtc
+    pc = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    pc.ontrack = e => {{
+      const vid = document.getElementById('remote-video');
+      vid.srcObject = e.streams[0];
+      document.getElementById('webrtc-section').classList.add('active');
+      document.getElementById('call-status').textContent = 'Em chamada';
+      setStatus('');
+    }};
+
+    pc.oniceconnectionstatechange = () => {{
+      if (['disconnected','failed','closed'].includes(pc.iceConnectionState)) {{
+        setStatus('Conexão encerrada');
+        endUI();
+      }}
+    }};
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Signaling via go2rtc WebRTC HTTP API
+    const wsHost = window.location.hostname;
+    const sigResp = await fetch('http://' + wsHost + ':1984/api/webrtc?src=' + STREAM, {{
+      method: 'POST',
+      body: offer.sdp,
+      headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
+    }});
+    if (!sigResp.ok) throw new Error('go2rtc signaling failed: ' + sigResp.status);
+    const answerSdp = await sigResp.text();
+    await pc.setRemoteDescription({{type:'answer', sdp:answerSdp}});
+
+  }} catch(e) {{
+    setStatus('Erro: ' + e.message);
+    document.getElementById('actions').style.display = 'flex';
+    document.getElementById('call-status').textContent = 'Chamada recebida';
+  }}
+}}
+
+async function rejectCall() {{
+  await fetch(BASE + '/api/call/reject/' + CALL_ID, {{method:'POST'}});
+  window.history.back();
+}}
+
+async function hangupCall() {{
+  await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}});
+  if (pc) pc.close();
+  endUI();
+}}
+
+function endUI() {{
+  document.getElementById('webrtc-section').classList.remove('active');
+  document.getElementById('call-status').textContent = 'Chamada encerrada';
+  document.getElementById('avatar').textContent = '📴';
+  setTimeout(() => window.history.back(), 2000);
+}}
+
+function setStatus(msg) {{
+  document.getElementById('status-msg').textContent = msg;
+}}
+
+// Auto-check if call is still ringing
+setTimeout(async () => {{
+  const r = await fetch(BASE + '/api/call/' + CALL_ID).catch(() => null);
+  if (r) {{
+    const d = await r.json();
+    if (d.state === 'ended' || d.state === 'timeout' || d.state === 'rejected') {{
+      setStatus('Chamada não disponível');
+      document.getElementById('call-status').textContent = 'Chamada encerrada';
+      setTimeout(() => window.history.back(), 2000);
+    }}
+  }}
+}}, 1000);
+</script>
+</body>
+</html>"""
 
 
 PANEL_HTML = """<!DOCTYPE html>
@@ -775,15 +952,21 @@ setInterval(checkGo2rtc, 10000);
 
 def _notify_callee(callee: dict, caller_display: str, call_id: str, urls: dict):
     dtype = callee.get("type", "android")
+    ingress = get_ingress_url()
+    answer_url = f"{ingress}/call/{call_id}" if ingress else f"/api/hassio_ingress/ha_intercom/call/{call_id}"
+
     if dtype == "android":
         app_id = callee.get("mobile_app_id")
         if app_id:
             ha.notify_mobile(
                 mobile_app_id=app_id,
-                title="Chamada de Intercom",
-                message=f"{caller_display} está ligando",
+                title="📞 Chamada de Intercom",
+                message=f"{caller_display} está ligando. Toque para atender.",
                 call_id=call_id,
+                answer_url=answer_url,
             )
+        else:
+            logger.warning("Android device %s has no mobile_app_id", callee.get("name"))
     elif dtype == "voice_pe":
         entity_id = callee.get("ha_device_id") or callee.get("entity_id")
         if entity_id:

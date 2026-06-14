@@ -98,20 +98,31 @@ class HAClient:
     def fire_event(self, event_type: str, data: dict):
         self._post(f"/api/events/{event_type}", data)
 
-    def notify_mobile(self, mobile_app_id: str, title: str, message: str, call_id: str):
+    def notify_mobile(self, mobile_app_id: str, title: str, message: str,
+                      call_id: str, answer_url: str = ""):
         self._post(f"/api/services/notify/mobile_app_{mobile_app_id}", {
             "title": title,
             "message": message,
             "data": {
+                "clickAction": answer_url,
                 "actions": [
-                    {"action": f"INTERCOM_ANSWER_{call_id}", "title": "Atender"},
-                    {"action": f"INTERCOM_REJECT_{call_id}", "title": "Rejeitar"},
+                    {
+                        "action": "URI",
+                        "title": "📞 Atender",
+                        "uri": answer_url,
+                    },
+                    {
+                        "action": f"INTERCOM_REJECT_{call_id}",
+                        "title": "❌ Rejeitar",
+                    },
                 ],
                 "tag": f"intercom_{call_id}",
                 "channel": "intercom",
                 "importance": "high",
                 "ttl": 0,
                 "priority": "high",
+                "persistent": True,
+                "sticky": True,
             },
         })
 

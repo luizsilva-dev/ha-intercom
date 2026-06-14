@@ -1,5 +1,17 @@
 # Changelog — HA Intercom
 
+## 1.3.0
+- `panel_admin: false`: painel visível para todos os usuários (não só admins)
+- Página de atendimento WebRTC (`/call/<call_id>`) com UI de chamada recebida
+- Notificação push agora inclui URL de destino: tocar em "Atender" abre a página de chamada direto
+- `clickAction` na notificação abre a página de atendimento ao tocar na notificação
+- Notificação persistente e sticky para não sumir antes de atender
+- `ingress_url` obtido da Supervisor API para montar o link correto de atendimento
+
+## 1.2.4
+- Correção: path do ingress injetado server-side via header `X-Ingress-Path`
+- Corrige acesso via Nabu Casa e HA frontend (BASE calculado no servidor, não no browser)
+
 ## 1.2.3
 - Botão de atualização manual na aba Configurações
 - Verificação automática de versão ao carregar o painel
