@@ -1,4 +1,0 @@
-#!/command/with-contenv bashio
-# Generate go2rtc config from add-on options
-bashio::log.info "Generating go2rtc config..."
-python3 /app/generate_config.py

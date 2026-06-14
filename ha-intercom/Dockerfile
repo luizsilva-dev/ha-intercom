@@ -32,9 +32,5 @@ COPY app/ /app/
 # Copy go2rtc base config
 COPY go2rtc.yaml /etc/go2rtc.yaml
 
-# Copy s6-overlay service definitions
-COPY rootfs/ /
-RUN chmod a+x \
-    /etc/s6-overlay/s6-rc.d/init-intercom/up \
-    /etc/s6-overlay/s6-rc.d/go2rtc/run \
-    /etc/s6-overlay/s6-rc.d/intercom-api/run
+# Python supervisor as PID 1 — bypasses s6-overlay entirely
+ENTRYPOINT ["/usr/bin/python3", "/app/supervisor.py"]
