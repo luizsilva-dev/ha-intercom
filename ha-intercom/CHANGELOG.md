@@ -1,5 +1,11 @@
 # Changelog — HA Intercom
 
+## 1.3.7
+- Correção UX: painel de chamadas redesenhado — cada card agora representa o DESTINO (quem vai receber a chamada)
+- Adicionado seletor "📲 Chamando de:" para escolher explicitamente seu próprio dispositivo antes de ligar
+- Seleção do dispositivo salva em localStorage para persistir entre sessões
+- Elimina confusão anterior onde o botão de ligar no card de um dispositivo iniciava chamada DELE para outro
+
 ## 1.3.6
 - Correção: sem áudio após conexão — ICE não-trickle enviava SDP incompleto (timeout 5s antes do STUN responder)
 - Implementado trickle ICE real: SDP enviado imediatamente após `setLocalDescription`; candidatos ICE trocados via endpoints `/api/call/{id}/ice/{role}` com polling a cada 500ms
