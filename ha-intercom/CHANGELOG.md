@@ -1,5 +1,10 @@
 # Changelog — HA Intercom
 
+## 1.3.2
+- Correção: criação de stream go2rtc com `echo:` falhava com 400 porque `requests` codificava o `:` como `%3A`; URL agora construída manualmente
+- Correção: atender chamada já em estado `active` (duplo toque na notificação) retornava 404; endpoint agora retorna 200 com o estado atual
+- Página de atendimento trata resposta `active` sem lançar erro
+
 ## 1.3.1
 - Correção: adicionado `hassio_api: true` e `hassio_role: manager` para permitir chamadas à Supervisor API
 - Sem essas permissões o botão de atualização manual e o `auto_update` não conseguiam acionar o Supervisor

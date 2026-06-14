@@ -202,6 +202,11 @@ def initiate_call():
 def answer_call(call_id: str):
     call = manager.answer(call_id)
     if not call:
+        # Already answered (e.g. double-tap on notification) — return current state
+        existing = manager.get_call(call_id)
+        if existing and existing.state == CallState.ACTIVE:
+            urls = manager.get_stream_urls(existing, base_url())
+            return jsonify({"call_id": call_id, "state": existing.state, **urls})
         return jsonify({"error": "Call not found or not ringing"}), 404
     urls = manager.get_stream_urls(call, base_url())
     ha.fire_event("ha_intercom_call_answered", {"call_id": call_id, **urls})
@@ -329,9 +334,10 @@ async function answerCall() {{
   document.getElementById('avatar').style.animation = 'none';
 
   try {{
-    // Answer via API
+    // Answer via API (idempotent — 200 even if already active)
     const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
-    if (!r.ok) throw new Error('Failed to answer');
+    const answerData = await r.json();
+    if (!r.ok && answerData.error !== 'already_active') throw new Error(answerData.error || 'Failed to answer');
 
     // Request mic
     const localStream = await navigator.mediaDevices.getUserMedia({{audio:true, video:false}});

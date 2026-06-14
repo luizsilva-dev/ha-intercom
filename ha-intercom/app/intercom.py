@@ -127,15 +127,13 @@ class IntercomManager:
         self._delete_go2rtc_stream(call.stream_name)
 
     def _create_go2rtc_stream(self, stream_name: str):
-        """Add a two-way audio stream to go2rtc via its API."""
+        """Add a two-way echo stream to go2rtc.
+        Build the URL manually — requests would percent-encode the colon in
+        'echo:' to 'echo%3A' which go2rtc does not accept.
+        """
         try:
-            # go2rtc echo stream: each WebRTC peer that connects shares audio with others
-            url = f"{self._go2rtc_url}/api/streams"
-            resp = requests.put(
-                url,
-                params={"name": stream_name, "src": "echo:"},
-                timeout=5,
-            )
+            url = f"{self._go2rtc_url}/api/streams?name={stream_name}&src=echo:"
+            resp = requests.put(url, timeout=5)
             resp.raise_for_status()
             logger.debug("Created go2rtc stream: %s", stream_name)
         except Exception as e:
