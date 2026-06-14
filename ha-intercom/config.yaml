@@ -1,0 +1,43 @@
+name: HA Intercom
+version: "1.0.0"
+slug: ha_intercom
+description: Bidirectional intercom between HA devices (Android app & Voice PE) via go2rtc WebRTC
+url: https://github.com/luizsilva-dev/ha-intercom
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+map:
+  - config:rw
+  - ssl:r
+ports:
+  1984/tcp: 1984
+  8554/tcp: 8554
+  8555/tcp: 8555
+  8099/tcp: 8099
+ports_description:
+  1984/tcp: go2rtc API & Web UI
+  8554/tcp: RTSP streams
+  8555/tcp: WebRTC
+  8099/tcp: Intercom signaling API
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:intercom
+panel_title: Intercom
+options:
+  devices: []
+  call_timeout: 30
+  max_call_duration: 300
+  log_level: info
+schema:
+  devices:
+    - name: str
+      type: "list(android|voice_pe)"
+      room: str
+      ha_device_id: str?
+      mobile_app_id: str?
+  call_timeout: int
+  max_call_duration: int
+  log_level: "list(debug|info|warning|error)"

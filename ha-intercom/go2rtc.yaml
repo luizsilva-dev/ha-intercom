@@ -1,0 +1,15 @@
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+
+log:
+  level: info
+
+# Streams are added dynamically by the intercom API when calls are initiated
+streams: {}

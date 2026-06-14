@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure HA Intercom",
+        "description": "Connect to the HA Intercom add-on. Make sure the add-on is installed first.",
+        "data": {
+          "api_url": "Intercom API URL",
+          "my_device": "This device's name (as configured in the add-on)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Intercom API. Check that the add-on is running."
+    },
+    "abort": {
+      "already_configured": "HA Intercom is already configured."
+    }
+  }
+}
