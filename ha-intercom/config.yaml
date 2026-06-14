@@ -10,7 +10,6 @@ startup: application
 boot: auto
 map:
   - config:rw
-  - ssl:r
 ports:
   1984/tcp: 1984
   8554/tcp: 8554

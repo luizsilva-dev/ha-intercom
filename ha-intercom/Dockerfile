@@ -1,8 +1,7 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.19
 FROM ${BUILD_FROM}
 
 ARG GO2RTC_VERSION=1.9.4
-ARG TARGETARCH
 
 # Install dependencies
 RUN apk add --no-cache \
@@ -29,9 +28,6 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 
 # Copy application
 COPY app/ /app/
-
-# Copy s6 service definitions
-COPY rootfs/ /
 
 # Copy go2rtc base config
 COPY go2rtc.yaml /etc/go2rtc.yaml
