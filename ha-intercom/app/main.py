@@ -1053,24 +1053,10 @@ async function renderDeviceGrid() {
       }).join('');
   }
 
-  // Each card = destination to call TO
+  // Each entry = one call button to a destination
   grid.innerHTML = devices.map(dev => {
     const label = dev.nickname || dev.name;
-    const icon = dev.type === 'android' ? '📱' : '🔊';
-    const room = dev.room ? ' · ' + dev.room : '';
-    return `<div class="device-card" id="card-${label}">
-      <div class="device-header">
-        <span class="device-icon">${icon}</span>
-        <div>
-          <div class="device-name">${label}</div>
-          <div class="device-meta">${dev.type}${room}</div>
-        </div>
-        <span class="status-dot" id="sdot-${label}"></span>
-      </div>
-      <div class="call-buttons">
-        <button class="call-btn" onclick="initiateCallTo('${label}')">📞 ${label}</button>
-      </div>
-    </div>`;
+    return `<button class="call-btn" id="card-${label}" style="padding:14px 24px;font-size:1rem;border-radius:12px;width:100%" onclick="initiateCallTo('${label}')">📞 Chamar ${label}</button>`;
   }).join('');
 }
 
