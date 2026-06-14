@@ -298,6 +298,13 @@ def _build_call_page(call_id: str, caller_name: str, callee_name: str,
     peer_stream = f"{stream_name}_callee" if is_caller else f"{stream_name}_caller"
     initial_status = f"Ligando para {other_name}..." if is_caller else f"Chamada de {caller_name}"
     initial_icon = "📲" if is_caller else "📱"
+    cancel_lbl = "Cancelar" if is_caller else "Rejeitar"
+    answer_btn = "" if is_caller else (
+        '<button class="action-btn" onclick="answerCall()">'
+        '<div class="circle circle-green">📞</div>'
+        '<div class="action-lbl">Atender</div>'
+        '</button>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -336,14 +343,10 @@ audio#remote-audio{{display:none}}
 <div id="err-msg"></div>
 
 <div class="actions" id="actions">
-{"" if is_caller else """
-  <button class="action-btn" onclick="answerCall()">
-    <div class="circle circle-green">📞</div>
-    <div class="action-lbl">Atender</div>
-  </button>"""}
+  {answer_btn}
   <button class="action-btn" id="cancel-btn" onclick="cancelOrHangup()">
     <div class="circle circle-red">📵</div>
-    <div class="action-lbl">{"Cancelar" if is_caller else "Rejeitar"}</div>
+    <div class="action-lbl">{cancel_lbl}</div>
   </button>
 </div>
 

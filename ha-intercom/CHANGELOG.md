@@ -1,5 +1,8 @@
 # Changelog — HA Intercom
 
+## 1.3.4
+- Correção: SyntaxError no f-string da página de chamada (triple-quote dentro de f-string não suportado no Python 3.11); extraído para variável antes do f-string
+
 ## 1.3.3
 - Correção: "failed to fetch" no atendimento WebRTC — SDP offer agora proxiado pelo Flask (`/api/webrtc/offer`) para evitar CORS/bloqueio de porta
 - Áudio bidirecional: duas RTCPeerConnections por chamada (publisher e subscriber) com streams direcionais `_caller`/`_callee`
