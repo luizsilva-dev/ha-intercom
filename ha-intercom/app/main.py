@@ -411,7 +411,9 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
 <audio id="remote-audio" autoplay playsinline></audio>
 
 <script>
-const BASE = '{base}';
+// BASE derived from current URL path — robust regardless of ingress/auth mechanism
+// e.g. /api/hassio_ingress/ha_intercom/call/xxx → /api/hassio_ingress/ha_intercom
+const BASE = (window.location.pathname.split('/call/')[0] || '').replace(/\/$/, '');
 const CALL_ID = '{call_id}';
 const ROLE = '{role}';
 const AUTO_ANSWER = {auto_answer_js};
@@ -423,6 +425,8 @@ let timerInterval = null;
 let pollInterval = null;
 let icePollInterval = null;
 let ringInterval = null, ringInterval2 = null;
+
+window.onerror = (msg, src, line) => {{ dbg('JS ERROR: ' + msg + ' L' + line); }};
 
 // ---- Ring tone ----
 let audioCtx = null;
@@ -699,6 +703,7 @@ function startPoll() {{
 function stopPoll() {{ if(pollInterval){{clearInterval(pollInterval);pollInterval=null;}} }}
 
 // ---- Init ----
+dbg('init BASE=' + BASE + ' ROLE=' + ROLE + ' AUTO=' + AUTO_ANSWER);
 if (ROLE === 'caller') {{
   startRing('outgoing');
   startPoll();
