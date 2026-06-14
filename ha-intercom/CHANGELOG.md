@@ -1,5 +1,12 @@
 # Changelog — HA Intercom
 
+## 1.3.6
+- Correção: sem áudio após conexão — ICE não-trickle enviava SDP incompleto (timeout 5s antes do STUN responder)
+- Implementado trickle ICE real: SDP enviado imediatamente após `setLocalDescription`; candidatos ICE trocados via endpoints `/api/call/{id}/ice/{role}` com polling a cada 500ms
+- Múltiplos servidores STUN para maior cobertura de candidatos
+- `onConnected()` agora disparado pelo evento `iceconnectionstatechange → connected` (não antes de ICE estar estabelecido)
+- Handler `ontrack` mais robusto com `MediaStream.addTrack`
+
 ## 1.3.5
 - Correção: go2rtc não suporta publicação WebRTC via HTTP POST (`?dst=`) — retornava 404 ao atender
 - Nova arquitetura: WebRTC P2P direto entre browsers (sem go2rtc para roteamento de áudio)

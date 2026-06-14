@@ -26,6 +26,8 @@ _start_time = time.time()
 _ingress_url: str = ""   # populated at first request or from Supervisor
 # SDP signaling store for P2P WebRTC (call_id -> {offer, answer})
 _sdp_store: dict[str, dict] = {}
+# ICE candidate store (call_id -> {caller: [...], callee: [...]})
+_ice_store: dict[str, dict] = {}
 manager = IntercomManager(GO2RTC_URL, CALL_TIMEOUT, MAX_CALL_DURATION)
 ha = HAClient()
 
@@ -308,6 +310,29 @@ def get_sdp_answer(call_id: str):
     return Response(sdp, content_type="application/sdp")
 
 
+@app.post("/api/call/<call_id>/ice/<role>")
+def post_ice(call_id: str, role: str):
+    """Caller or callee posts an ICE candidate (trickle ICE)."""
+    if role not in ("caller", "callee"):
+        return jsonify({"error": "role must be caller or callee"}), 400
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "empty body"}), 400
+    store = _ice_store.setdefault(call_id, {"caller": [], "callee": []})
+    store[role].append(body)
+    return "", 204
+
+
+@app.get("/api/call/<call_id>/ice/<role>")
+def get_ice(call_id: str, role: str):
+    """Poll for ICE candidates from a role, starting from index `after`."""
+    if role not in ("caller", "callee"):
+        return jsonify({"error": "role must be caller or callee"}), 400
+    after = int(request.args.get("after", "0"))
+    candidates = _ice_store.get(call_id, {}).get(role, [])
+    return jsonify({"candidates": candidates[after:], "total": len(candidates)})
+
+
 def _build_call_page(call_id: str, caller_name: str, callee_name: str,
                      stream_name: str, ingress_path: str, role: str) -> str:
     base = ingress_path
@@ -377,70 +402,95 @@ let pc = null;
 let connected = false;
 let timerInterval = null;
 let pollInterval = null;
-let answerPollInterval = null;
-let ringInterval = null;
-let ringInterval2 = null;
+let icePollInterval = null;
+let ringInterval = null, ringInterval2 = null;
 
-// ---- Ring tone (Web Audio API) ----
+// ---- Ring tone ----
 let audioCtx = null;
-function getAudioCtx() {{
-  if (!audioCtx) {{
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) audioCtx = new AC();
-  }}
+function getAC() {{
+  if (!audioCtx) {{ const A = window.AudioContext||window.webkitAudioContext; if(A) audioCtx=new A(); }}
   return audioCtx;
 }}
-function playTone(freq, dur, startAt, vol) {{
-  const ctx = getAudioCtx(); if (!ctx) return;
-  const osc = ctx.createOscillator(), gain = ctx.createGain();
-  osc.connect(gain); gain.connect(ctx.destination);
-  osc.type = 'sine'; osc.frequency.value = freq;
-  gain.gain.setValueAtTime(vol || 0.25, startAt);
-  gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur - 0.01);
-  osc.start(startAt); osc.stop(startAt + dur);
+function playTone(f,d,t,v) {{
+  const ctx=getAC(); if(!ctx) return;
+  const o=ctx.createOscillator(),g=ctx.createGain();
+  o.connect(g);g.connect(ctx.destination);
+  o.type='sine';o.frequency.value=f;
+  g.gain.setValueAtTime(v||0.25,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+d-0.01);
+  o.start(t);o.stop(t+d);
 }}
 function ringOnce(type) {{
-  const ctx = getAudioCtx(); if (!ctx) return;
-  const t = ctx.currentTime;
-  if (type === 'incoming') {{ playTone(480, 0.35, t); playTone(480, 0.35, t + 0.45); }}
-  else {{ playTone(440, 0.6, t, 0.18); playTone(480, 0.6, t + 0.05, 0.12); }}
+  const ctx=getAC();if(!ctx)return;const t=ctx.currentTime;
+  if(type==='incoming'){{playTone(480,.35,t);playTone(480,.35,t+.45);}}
+  else{{playTone(440,.6,t,.18);playTone(480,.6,t+.05,.12);}}
 }}
 function startRing(type) {{
-  stopRing(); ringOnce(type);
-  ringInterval = setInterval(() => ringOnce(type), type === 'incoming' ? 3200 : 4000);
-  if (navigator.vibrate && type === 'incoming') {{
+  stopRing();ringOnce(type);
+  ringInterval=setInterval(()=>ringOnce(type),type==='incoming'?3200:4000);
+  if(navigator.vibrate&&type==='incoming'){{
     navigator.vibrate([400,200,400,1200,400,200,400,2000]);
-    ringInterval2 = setInterval(() => navigator.vibrate([400,200,400,1200,400,200,400]), 4200);
+    ringInterval2=setInterval(()=>navigator.vibrate([400,200,400,1200,400,200,400]),4200);
   }}
 }}
 function stopRing() {{
-  if (ringInterval) {{ clearInterval(ringInterval); ringInterval = null; }}
-  if (ringInterval2) {{ clearInterval(ringInterval2); ringInterval2 = null; }}
-  if (navigator.vibrate) navigator.vibrate(0);
+  if(ringInterval){{clearInterval(ringInterval);ringInterval=null;}}
+  if(ringInterval2){{clearInterval(ringInterval2);ringInterval2=null;}}
+  if(navigator.vibrate)navigator.vibrate(0);
 }}
 
 // ---- Timer ----
 function startTimer() {{
-  const el = document.getElementById('timer');
-  el.style.display = 'block';
-  timerInterval = setInterval(() => {{
-    const s = Math.floor((Date.now() - startTimer._t0) / 1000);
-    el.textContent = Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
-  }}, 1000);
-  startTimer._t0 = Date.now();
+  const el=document.getElementById('timer');
+  el.style.display='block';
+  const t0=Date.now();
+  timerInterval=setInterval(()=>{{
+    const s=Math.floor((Date.now()-t0)/1000);
+    el.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  }},1000);
 }}
 
-// ---- P2P WebRTC helpers ----
-const ICE = {{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}};
+// ---- ICE config ----
+const ICE_CFG = {{iceServers:[
+  {{urls:'stun:stun.l.google.com:19302'}},
+  {{urls:'stun:stun1.l.google.com:19302'}},
+  {{urls:'stun:stun2.l.google.com:19302'}}
+]}};
 
-function waitForIce(pc) {{
-  return new Promise(resolve => {{
-    if (pc.iceGatheringState === 'complete') {{ resolve(); return; }}
-    pc.onicegatheringstatechange = () => {{ if (pc.iceGatheringState === 'complete') resolve(); }};
-    setTimeout(resolve, 5000); // fallback
-  }});
+// ---- Trickle ICE: send own candidates, poll remote candidates ----
+function setupIceTrickle(myPc, myRole) {{
+  const remoteRole = myRole === 'caller' ? 'callee' : 'caller';
+  let iceAfter = 0;
+
+  // Send own ICE candidates as they arrive
+  myPc.onicecandidate = async e => {{
+    if (!e.candidate) return;
+    await fetch(BASE+'/api/call/'+CALL_ID+'/ice/'+myRole, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{
+        candidate:e.candidate.candidate,
+        sdpMid:e.candidate.sdpMid,
+        sdpMLineIndex:e.candidate.sdpMLineIndex
+      }})
+    }}).catch(()=>{{}});
+  }};
+
+  // Poll for remote ICE candidates every 500ms
+  icePollInterval = setInterval(async () => {{
+    const r = await fetch(BASE+'/api/call/'+CALL_ID+'/ice/'+remoteRole+'?after='+iceAfter).catch(()=>null);
+    if (!r||!r.ok) return;
+    const d = await r.json();
+    for (const c of d.candidates) {{
+      try {{ await myPc.addIceCandidate(new RTCIceCandidate(c)); }} catch(e) {{}}
+    }}
+    iceAfter = d.total;
+  }}, 500);
+
+  // Stop ICE polling after 30s (connection should be established by then)
+  setTimeout(() => {{ if(icePollInterval){{clearInterval(icePollInterval);icePollInterval=null;}} }}, 30000);
 }}
 
+// ---- Connection established ----
 function onConnected() {{
   connected = true;
   stopRing();
@@ -451,40 +501,47 @@ function onConnected() {{
   document.querySelector('#cancel-btn .action-lbl').textContent = 'Encerrar';
 }}
 
-// ---- CALLER flow ----
-// 1. Create offer immediately, post to Flask
-// 2. Poll for callee's SDP answer
-// 3. When answer arrives → connected
+// ---- CALLER: setup WebRTC, post offer, poll for answer ----
 async function callerSetup() {{
   setStatus('Aguardando microfone...');
   try {{
     const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
-    pc = new RTCPeerConnection(ICE);
+    pc = new RTCPeerConnection(ICE_CFG);
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
-    pc.ontrack = e => {{ document.getElementById('remote-audio').srcObject = e.streams[0]; }};
-    pc.oniceconnectionstatechange = () => {{
-      if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected) endUI('Chamada encerrada');
+    pc.ontrack = e => {{
+      const audio = document.getElementById('remote-audio');
+      if (!audio.srcObject) audio.srcObject = new MediaStream();
+      e.streams[0]?.getTracks().forEach(t => audio.srcObject.addTrack(t));
     }};
+    pc.oniceconnectionstatechange = () => {{
+      if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
+        endUI('Chamada encerrada');
+      if (pc.iceConnectionState === 'connected' && !connected)
+        onConnected();
+    }};
+
+    // Start trickle ICE BEFORE creating offer so we don't miss early candidates
+    setupIceTrickle(pc, 'caller');
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     setStatus('Ligando para {other_name}...');
-    await waitForIce(pc);
 
-    const r = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/offer', {{
-      method:'POST', body: pc.localDescription.sdp,
+    // Post offer immediately (trickle ICE — candidates will follow separately)
+    const r = await fetch(BASE+'/api/call/'+CALL_ID+'/sdp/offer', {{
+      method:'POST', body:pc.localDescription.sdp,
       headers:{{'Content-Type':'application/sdp'}}
     }});
     if (!r.ok) throw new Error('Erro ao enviar oferta: ' + r.status);
 
-    // Poll for answer
-    answerPollInterval = setInterval(async () => {{
-      const r2 = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/answer').catch(()=>null);
-      if (!r2 || r2.status === 204) return;
-      clearInterval(answerPollInterval);
+    // Poll for callee's SDP answer
+    const answerPoll = setInterval(async () => {{
+      const r2 = await fetch(BASE+'/api/call/'+CALL_ID+'/sdp/answer').catch(()=>null);
+      if (!r2||r2.status===204) return;
+      clearInterval(answerPoll);
       const sdp = await r2.text();
       await pc.setRemoteDescription({{type:'answer', sdp}});
-      onConnected();
+      // onConnected() will be called by oniceconnectionstatechange → 'connected'
     }}, 1000);
 
   }} catch(e) {{
@@ -493,16 +550,13 @@ async function callerSetup() {{
   }}
 }}
 
-// ---- CALLEE flow ----
-// 1. Answer call state
-// 2. Poll for caller's SDP offer
-// 3. Create answer, post to Flask → connected
+// ---- CALLEE: answer call, get offer, create answer ----
 async function answerCall() {{
   stopRing();
   document.getElementById('actions').querySelector('.circle-green')?.closest('button')?.remove();
   setStatus('Atendendo...');
   try {{
-    const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
+    const r = await fetch(BASE+'/api/call/answer/'+CALL_ID, {{method:'POST'}});
     const d = await r.json();
     if (!r.ok && d.state !== 'active') throw new Error(d.error || 'Erro ao atender');
     await calleeConnect();
@@ -512,11 +566,10 @@ async function answerCall() {{
 }}
 
 async function calleeConnect() {{
-  setStatus('Aguardando sinal...');
-  // Poll for caller's offer (up to 15s)
+  setStatus('Aguardando oferta WebRTC...');
   let offerSdp = null;
-  for (let i = 0; i < 15; i++) {{
-    const r = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/offer').catch(()=>null);
+  for (let i = 0; i < 20; i++) {{
+    const r = await fetch(BASE+'/api/call/'+CALL_ID+'/sdp/offer').catch(()=>null);
     if (r && r.status === 200) {{ offerSdp = await r.text(); break; }}
     await new Promise(res => setTimeout(res, 1000));
   }}
@@ -524,31 +577,40 @@ async function calleeConnect() {{
 
   setStatus('Conectando áudio...');
   const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
-  pc = new RTCPeerConnection(ICE);
+  pc = new RTCPeerConnection(ICE_CFG);
   stream.getTracks().forEach(t => pc.addTrack(t, stream));
-  pc.ontrack = e => {{ document.getElementById('remote-audio').srcObject = e.streams[0]; }};
+  pc.ontrack = e => {{
+    const audio = document.getElementById('remote-audio');
+    if (!audio.srcObject) audio.srcObject = new MediaStream();
+    e.streams[0]?.getTracks().forEach(t => audio.srcObject.addTrack(t));
+  }};
   pc.oniceconnectionstatechange = () => {{
-    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected) endUI('Chamada encerrada');
+    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
+      endUI('Chamada encerrada');
+    if (pc.iceConnectionState === 'connected' && !connected)
+      onConnected();
   }};
 
   await pc.setRemoteDescription({{type:'offer', sdp:offerSdp}});
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  await waitForIce(pc);
 
-  await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/answer', {{
-    method:'POST', body: pc.localDescription.sdp,
+  // Start trickle ICE AFTER setLocalDescription so we start sending our candidates
+  setupIceTrickle(pc, 'callee');
+
+  // Post answer immediately
+  await fetch(BASE+'/api/call/'+CALL_ID+'/sdp/answer', {{
+    method:'POST', body:pc.localDescription.sdp,
     headers:{{'Content-Type':'application/sdp'}}
   }});
-  onConnected();
+  // onConnected() will be called by oniceconnectionstatechange → 'connected'
 }}
 
 // ---- Hangup / cancel ----
 async function cancelOrHangup() {{
-  stopRing();
-  stopPoll();
-  if (answerPollInterval) {{ clearInterval(answerPollInterval); answerPollInterval = null; }}
-  await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
+  stopRing(); stopPoll();
+  if (icePollInterval) {{ clearInterval(icePollInterval); icePollInterval = null; }}
+  await fetch(BASE+'/api/call/hangup/'+CALL_ID, {{method:'POST'}}).catch(()=>{{}});
   if (pc) pc.close();
   endUI('Chamada encerrada');
 }}
@@ -556,7 +618,7 @@ async function cancelOrHangup() {{
 function endUI(msg) {{
   stopRing(); stopPoll();
   if (timerInterval) {{ clearInterval(timerInterval); timerInterval = null; }}
-  if (answerPollInterval) {{ clearInterval(answerPollInterval); answerPollInterval = null; }}
+  if (icePollInterval) {{ clearInterval(icePollInterval); icePollInterval = null; }}
   connected = false;
   setStatus(msg || 'Chamada encerrada');
   document.getElementById('avatar').className = 'avatar ended';
@@ -568,18 +630,17 @@ function endUI(msg) {{
 function setStatus(s) {{ document.getElementById('status').textContent = s; }}
 function setErr(s) {{ document.getElementById('err-msg').textContent = s; }}
 
-// ---- Poll call state (detect reject/timeout for caller) ----
+// ---- Poll call state ----
 function startPoll() {{
   pollInterval = setInterval(async () => {{
-    const r = await fetch(BASE + '/api/call/' + CALL_ID).catch(()=>null);
+    const r = await fetch(BASE+'/api/call/'+CALL_ID).catch(()=>null);
     if (!r) return;
     const d = await r.json();
-    if (['ended','rejected','timeout'].includes(d.state) && !connected) {{
-      endUI(d.state === 'rejected' ? 'Chamada rejeitada' : 'Chamada encerrada');
-    }}
+    if (['ended','rejected','timeout'].includes(d.state) && !connected)
+      endUI(d.state==='rejected' ? 'Chamada rejeitada' : 'Chamada encerrada');
   }}, 2000);
 }}
-function stopPoll() {{ if (pollInterval) {{ clearInterval(pollInterval); pollInterval = null; }} }}
+function stopPoll() {{ if(pollInterval){{clearInterval(pollInterval);pollInterval=null;}} }}
 
 // ---- Init ----
 if (ROLE === 'caller') {{
