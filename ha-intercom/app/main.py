@@ -394,6 +394,7 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
 <div class="status" id="status">{initial_status}</div>
 <div class="timer" id="timer">0:00</div>
 <div id="err-msg"></div>
+<div id="dbg-log" style="font-size:.72rem;color:#78909c;text-align:center;max-width:340px;line-height:1.6;white-space:pre-wrap"></div>
 
 <div class="actions" id="actions">
   {answer_btn}
@@ -537,17 +538,21 @@ function onConnected() {{
 async function callerSetup() {{
   setStatus('Aguardando microfone...');
   try {{
+    dbg('mic: solicitando...');
     localStream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+    dbg('mic: ok, tracks=' + localStream.getTracks().length);
     pc = new RTCPeerConnection(ICE_CFG);
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     pc.ontrack = e => {{
+      dbg('caller ontrack: kind=' + e.track.kind);
       const audio = document.getElementById('remote-audio');
       if (!audio.srcObject) audio.srcObject = new MediaStream();
       audio.srcObject.addTrack(e.track);
       audio.muted = false;
-      audio.play().catch(() => {{}});
+      audio.play().catch(ex => dbg('play err: '+ex));
     }};
     pc.oniceconnectionstatechange = () => {{
+      dbg('ICE caller: ' + pc.iceConnectionState);
       if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
         endUI('Chamada encerrada');
       if (pc.iceConnectionState === 'connected' && !connected)
@@ -561,12 +566,14 @@ async function callerSetup() {{
     await pc.setLocalDescription(offer);
     setStatus('Ligando para {other_name}...');
 
+    dbg('offer criado, postando...');
     // Post offer immediately (trickle ICE — candidates will follow separately)
     const r = await fetch(BASE+'/api/call/'+CALL_ID+'/sdp/offer', {{
       method:'POST', body:pc.localDescription.sdp,
       headers:{{'Content-Type':'application/sdp'}}
     }});
     if (!r.ok) throw new Error('Erro ao enviar oferta: ' + r.status);
+    dbg('offer postado ok, aguardando answer...');
 
     // Poll for callee's SDP answer
     const answerPoll = setInterval(async () => {{
@@ -574,7 +581,9 @@ async function callerSetup() {{
       if (!r2||r2.status===204) return;
       clearInterval(answerPoll);
       const sdp = await r2.text();
+      dbg('answer recebido, setRemoteDesc...');
       await pc.setRemoteDescription({{type:'answer', sdp}});
+      dbg('answer aplicado, aguardando ICE...');
       // onConnected() will be called by oniceconnectionstatechange → 'connected'
     }}, 1000);
 
@@ -610,27 +619,34 @@ async function calleeConnect() {{
   if (!offerSdp) {{ setErr('Timeout: oferta WebRTC não recebida'); return; }}
 
   setStatus('Conectando áudio...');
+  dbg('callee: criando PC...');
   pc = new RTCPeerConnection(ICE_CFG);
   pc.ontrack = e => {{
+    dbg('callee ontrack: kind=' + e.track.kind);
     const audio = document.getElementById('remote-audio');
     if (!audio.srcObject) audio.srcObject = new MediaStream();
     audio.srcObject.addTrack(e.track);
     audio.muted = false;
-    audio.play().catch(() => {{}});
+    audio.play().catch(ex => dbg('play err: '+ex));
   }};
   pc.oniceconnectionstatechange = () => {{
+    dbg('ICE callee: ' + pc.iceConnectionState);
     if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
       endUI('Chamada encerrada');
     if (pc.iceConnectionState === 'connected' && !connected)
       onConnected();
   }};
 
-  // Critical: setRemoteDescription FIRST, then getUserMedia + addTrack
+  dbg('callee: setRemoteDesc(offer)...');
   await pc.setRemoteDescription({{type:'offer', sdp:offerSdp}});
+  dbg('callee: getUserMedia...');
   localStream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+  dbg('callee: mic ok, addTrack...');
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  dbg('callee: createAnswer...');
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
+  dbg('callee: answer pronto, enviando...');
 
   // Start trickle ICE AFTER setLocalDescription so we start sending our candidates
   setupIceTrickle(pc, 'callee');
@@ -668,6 +684,7 @@ function endUI(msg) {{
 
 function setStatus(s) {{ document.getElementById('status').textContent = s; }}
 function setErr(s) {{ document.getElementById('err-msg').textContent = s; }}
+function dbg(s) {{ const el=document.getElementById('dbg-log'); if(el) el.textContent += s + '\n'; console.log('[intercom]', s); }}
 
 // ---- Poll call state ----
 function startPoll() {{
@@ -1068,16 +1085,9 @@ async function renderRegistered() {
   }
   container.innerHTML = '<div class="registered-list">' + devices.map((dev, i) => {
     const label = dev.nickname || dev.name;
-    const icon = dev.type === 'android' ? '📱' : '🔊';
-    const room = dev.room || '—';
     return `<div class="reg-item">
-      <span class="reg-icon">${icon}</span>
-      <div class="reg-info">
-        <div class="reg-nickname">${label}</div>
-        <div class="reg-detail">${dev.ha_id} · ${room} · ${dev.type}</div>
-      </div>
-      <button class="btn btn-secondary btn-sm" onclick="editDevice(${i})">✏️ Editar</button>
-      <button class="btn btn-danger btn-sm" onclick="removeDevice(${i})">🗑</button>
+      <button class="call-btn" style="flex:1;padding:10px 0;font-size:.9rem" onclick="initiateCallTo('${label}')">📞 Chamar ${label}</button>
+      <button class="btn btn-danger btn-sm" onclick="removeDevice(${i})" title="Remover">🗑</button>
     </div>`;
   }).join('') + '</div>';
 }

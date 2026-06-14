@@ -1,5 +1,10 @@
 # Changelog — HA Intercom
 
+## 1.3.10
+- Debug: log de diagnóstico visível na tela de chamada (cada etapa WebRTC/ICE) para identificar onde o áudio falha
+- UX: aba Dispositivos agora mostra apenas botão "📞 Chamar XXX" + botão de remover
+- Sem outras mudanças funcionais nesta versão — diagnóstico do áudio mudo
+
 ## 1.3.9
 - Correção crítica de áudio bidirecional: callee agora faz `setRemoteDescription(offer)` ANTES de `getUserMedia`+`addTrack`+`createAnswer` — ordem correta para SDP negociation
 - Botão de mudo ao lado de Encerrar (aparece após conectar); alterna microfone local sem encerrar chamada
