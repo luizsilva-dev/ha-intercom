@@ -99,7 +99,7 @@ class HAClient:
         self._post(f"/api/events/{event_type}", data)
 
     def notify_mobile(self, mobile_app_id: str, title: str, message: str,
-                      call_id: str, answer_url: str = ""):
+                      call_id: str, answer_url: str = "", reject_url: str = ""):
         self._post(f"/api/services/notify/mobile_app_{mobile_app_id}", {
             "title": title,
             "message": message,
@@ -112,8 +112,9 @@ class HAClient:
                         "uri": answer_url,
                     },
                     {
-                        "action": f"INTERCOM_REJECT_{call_id}",
+                        "action": "URI",
                         "title": "❌ Rejeitar",
+                        "uri": reject_url,
                     },
                 ],
                 "tag": f"intercom_{call_id}",
@@ -124,6 +125,12 @@ class HAClient:
                 "persistent": True,
                 "sticky": True,
             },
+        })
+
+    def clear_notification(self, mobile_app_id: str, tag: str):
+        self._post(f"/api/services/notify/mobile_app_{mobile_app_id}", {
+            "message": "clear_notification",
+            "data": {"tag": tag},
         })
 
     def announce_voice_pe(self, entity_id: str, message: str):

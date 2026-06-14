@@ -206,7 +206,6 @@ def initiate_call():
 def answer_call(call_id: str):
     call = manager.answer(call_id)
     if not call:
-        # Already answered (e.g. double-tap on notification) — return current state
         existing = manager.get_call(call_id)
         if existing and existing.state == CallState.ACTIVE:
             urls = manager.get_stream_urls(existing, base_url())
@@ -214,6 +213,7 @@ def answer_call(call_id: str):
         return jsonify({"error": "Call not found or not ringing"}), 404
     urls = manager.get_stream_urls(call, base_url())
     ha.fire_event("ha_intercom_call_answered", {"call_id": call_id, **urls})
+    _clear_call_notifications(call)
     return jsonify({"call_id": call_id, "state": call.state, **urls})
 
 
@@ -223,6 +223,7 @@ def reject_call(call_id: str):
     if not call:
         return jsonify({"error": "Call not found"}), 404
     ha.fire_event("ha_intercom_call_rejected", {"call_id": call_id})
+    _clear_call_notifications(call)
     return jsonify({"call_id": call_id, "state": call.state})
 
 
@@ -263,11 +264,19 @@ def call_page(call_id: str):
     """WebRTC call page — used by both caller (role=caller) and callee (role=callee)."""
     ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
     role = request.args.get("role", "callee")
+    auto_answer = request.args.get("auto_answer", "0")
+    action = request.args.get("action", "")
     call = manager.get_call(call_id)
+    # Direct reject action from notification
+    if action == "reject" and call:
+        manager.reject(call_id)
+        ha.fire_event("ha_intercom_call_rejected", {"call_id": call_id})
+        _clear_call_notifications(call)
+        return "<html><body style='background:#0d1117;color:#e8eaed;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh'><p>Chamada rejeitada.</p></body></html>"
     stream = call.stream_name if call else f"intercom_{call_id}"
     caller_name = call.caller if call else "?"
     callee_name = call.callee if call else "?"
-    return _build_call_page(call_id, caller_name, callee_name, stream, ingress_path, role)
+    return _build_call_page(call_id, caller_name, callee_name, stream, ingress_path, role, auto_answer == "1")
 
 
 @app.post("/api/call/<call_id>/sdp/offer")
@@ -334,7 +343,8 @@ def get_ice(call_id: str, role: str):
 
 
 def _build_call_page(call_id: str, caller_name: str, callee_name: str,
-                     stream_name: str, ingress_path: str, role: str) -> str:
+                     stream_name: str, ingress_path: str, role: str,
+                     auto_answer: bool = False) -> str:
     base = ingress_path
     is_caller = role == "caller"
     other_name = callee_name if is_caller else caller_name
@@ -343,11 +353,12 @@ def _build_call_page(call_id: str, caller_name: str, callee_name: str,
     page_title = "Ligando" if is_caller else "Chamada"
     cancel_lbl = "Cancelar" if is_caller else "Rejeitar"
     answer_btn = "" if is_caller else (
-        '<button class="action-btn" onclick="answerCall()">'
+        '<button class="action-btn" id="answer-btn" onclick="answerCall()">'
         '<div class="circle circle-green">📞</div>'
         '<div class="action-lbl">Atender</div>'
         '</button>'
     )
+    auto_answer_js = "true" if auto_answer else "false"
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -386,6 +397,10 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
 
 <div class="actions" id="actions">
   {answer_btn}
+  <button class="action-btn" id="mute-btn" onclick="toggleMute()" style="display:none">
+    <div class="circle" style="background:#555" id="mute-circle">🎙️</div>
+    <div class="action-lbl">Mudo</div>
+  </button>
   <button class="action-btn" id="cancel-btn" onclick="cancelOrHangup()">
     <div class="circle circle-red">📵</div>
     <div class="action-lbl">{cancel_lbl}</div>
@@ -398,7 +413,10 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
 const BASE = '{base}';
 const CALL_ID = '{call_id}';
 const ROLE = '{role}';
+const AUTO_ANSWER = {auto_answer_js};
 let pc = null;
+let localStream = null;
+let muted = false;
 let connected = false;
 let timerInterval = null;
 let pollInterval = null;
@@ -490,8 +508,21 @@ function setupIceTrickle(myPc, myRole) {{
   setTimeout(() => {{ if(icePollInterval){{clearInterval(icePollInterval);icePollInterval=null;}} }}, 30000);
 }}
 
+// ---- Mute ----
+function toggleMute() {{
+  if (!localStream) return;
+  muted = !muted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !muted);
+  const circle = document.getElementById('mute-circle');
+  if (circle) {{
+    circle.textContent = muted ? '🔇' : '🎙️';
+    circle.style.background = muted ? '#f44336' : '#555';
+  }}
+}}
+
 // ---- Connection established ----
 function onConnected() {{
+  if (connected) return;
   connected = true;
   stopRing();
   document.getElementById('avatar').className = 'avatar active';
@@ -499,19 +530,22 @@ function onConnected() {{
   startTimer();
   setErr('');
   document.querySelector('#cancel-btn .action-lbl').textContent = 'Encerrar';
+  document.getElementById('mute-btn').style.display = 'flex';
 }}
 
 // ---- CALLER: setup WebRTC, post offer, poll for answer ----
 async function callerSetup() {{
   setStatus('Aguardando microfone...');
   try {{
-    const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+    localStream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
     pc = new RTCPeerConnection(ICE_CFG);
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     pc.ontrack = e => {{
       const audio = document.getElementById('remote-audio');
       if (!audio.srcObject) audio.srcObject = new MediaStream();
-      e.streams[0]?.getTracks().forEach(t => audio.srcObject.addTrack(t));
+      audio.srcObject.addTrack(e.track);
+      audio.muted = false;
+      audio.play().catch(() => {{}});
     }};
     pc.oniceconnectionstatechange = () => {{
       if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected)
@@ -576,9 +610,7 @@ async function calleeConnect() {{
   if (!offerSdp) {{ setErr('Timeout: oferta WebRTC não recebida'); return; }}
 
   setStatus('Conectando áudio...');
-  const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
   pc = new RTCPeerConnection(ICE_CFG);
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
   pc.ontrack = e => {{
     const audio = document.getElementById('remote-audio');
     if (!audio.srcObject) audio.srcObject = new MediaStream();
@@ -593,7 +625,10 @@ async function calleeConnect() {{
       onConnected();
   }};
 
+  // Critical: setRemoteDescription FIRST, then getUserMedia + addTrack
   await pc.setRemoteDescription({{type:'offer', sdp:offerSdp}});
+  localStream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
@@ -612,8 +647,9 @@ async function calleeConnect() {{
 async function cancelOrHangup() {{
   stopRing(); stopPoll();
   if (icePollInterval) {{ clearInterval(icePollInterval); icePollInterval = null; }}
-  await fetch(BASE+'/api/call/hangup/'+CALL_ID, {{method:'POST'}}).catch(()=>{{}});
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
   if (pc) pc.close();
+  await fetch(BASE+'/api/call/hangup/'+CALL_ID, {{method:'POST'}}).catch(()=>{{}});
   endUI('Chamada encerrada');
 }}
 
@@ -626,7 +662,8 @@ function endUI(msg) {{
   document.getElementById('avatar').className = 'avatar ended';
   document.getElementById('avatar').textContent = '📴';
   document.getElementById('timer').style.display = 'none';
-  setTimeout(() => window.history.back(), 2500);
+  document.getElementById('actions').style.display = 'none';
+  setTimeout(() => window.location.replace(BASE + '/'), 2000);
 }}
 
 function setStatus(s) {{ document.getElementById('status').textContent = s; }}
@@ -649,6 +686,8 @@ if (ROLE === 'caller') {{
   startRing('outgoing');
   startPoll();
   callerSetup();
+}} else if (AUTO_ANSWER) {{
+  answerCall();
 }} else {{
   startRing('incoming');
 }}
@@ -1241,7 +1280,10 @@ setInterval(checkGo2rtc, 10000);
 def _notify_callee(callee: dict, caller_display: str, call_id: str, urls: dict):
     dtype = callee.get("type", "android")
     ingress = get_ingress_url()
-    answer_url = f"{ingress}/call/{call_id}?role=callee" if ingress else f"/api/hassio_ingress/ha_intercom/call/{call_id}?role=callee"
+    base = ingress if ingress else "/api/hassio_ingress/ha_intercom"
+    # auto_answer=1 makes the call page answer automatically when opened via notification
+    answer_url = f"{base}/call/{call_id}?role=callee&auto_answer=1"
+    reject_url = f"{base}/call/{call_id}?role=callee&action=reject"
 
     if dtype == "android":
         app_id = callee.get("mobile_app_id")
@@ -1252,6 +1294,7 @@ def _notify_callee(callee: dict, caller_display: str, call_id: str, urls: dict):
                 message=f"{caller_display} está ligando. Toque para atender.",
                 call_id=call_id,
                 answer_url=answer_url,
+                reject_url=reject_url,
             )
         else:
             logger.warning("Android device %s has no mobile_app_id", callee.get("name"))
@@ -1259,6 +1302,17 @@ def _notify_callee(callee: dict, caller_display: str, call_id: str, urls: dict):
         entity_id = callee.get("ha_device_id") or callee.get("entity_id")
         if entity_id:
             ha.announce_voice_pe(entity_id, f"Chamada de intercom de {caller_display}")
+
+
+def _clear_call_notifications(call):
+    """Clear push notifications on both caller and callee devices."""
+    tag = f"intercom_{call.id}"
+    for device_name in (call.caller, call.callee):
+        dev = find_device(device_name)
+        if dev and dev.get("type") == "android":
+            app_id = dev.get("mobile_app_id")
+            if app_id:
+                ha.clear_notification(app_id, tag)
 
 
 if __name__ == "__main__":

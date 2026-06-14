@@ -1,5 +1,15 @@
 # Changelog — HA Intercom
 
+## 1.3.9
+- Correção crítica de áudio bidirecional: callee agora faz `setRemoteDescription(offer)` ANTES de `getUserMedia`+`addTrack`+`createAnswer` — ordem correta para SDP negociation
+- Botão de mudo ao lado de Encerrar (aparece após conectar); alterna microfone local sem encerrar chamada
+- Ao encerrar chamada: aguarda 2s e redireciona para tela principal (`BASE + '/'`) em vez de `history.back()`
+- Notificação "Atender" usa `auto_answer=1`: abre a tela de chamada e atende automaticamente
+- Notificação "Rejeitar" usa `action=reject`: rejeita a chamada server-side e exibe confirmação
+- Após atender ou rejeitar: notificação limpa nos dois dispositivos (caller e callee)
+- `ontrack` do caller agora usa `e.track` diretamente (igual ao callee) para garantir áudio remoto
+- `onConnected()` protegido contra dupla execução com guard `if (connected) return`
+
 ## 1.3.8
 - UX: removido seletor "Chamando de:" da aba Chamadas
 - UX: cada card de dispositivo tem um botão com o apelido do dispositivo a ser chamado ("📞 Apelido")
