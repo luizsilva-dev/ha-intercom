@@ -28,6 +28,36 @@ ha = HAClient()
 
 
 # ---------------------------------------------------------------------------
+# Add-on self-management via Supervisor API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/addon/info")
+def addon_info():
+    try:
+        resp = _supervisor_session_get().get("http://supervisor/addons/self/info", timeout=8)
+        data = resp.json().get("data", {})
+        return jsonify({
+            "version": data.get("version"),
+            "version_latest": data.get("version_latest"),
+            "update_available": data.get("update_available", False),
+            "state": data.get("state"),
+        })
+    except Exception as e:
+        logger.error("Supervisor addon/info: %s", e)
+        return jsonify({"error": str(e)}), 502
+
+
+@app.post("/api/addon/update")
+def addon_update():
+    try:
+        resp = _supervisor_session_get().post("http://supervisor/addons/self/update", timeout=10)
+        return jsonify({"ok": resp.ok, "result": resp.json()})
+    except Exception as e:
+        logger.error("Supervisor addon/update: %s", e)
+        return jsonify({"error": str(e)}), 502
+
+
+# ---------------------------------------------------------------------------
 # Device config persistence (stored in /data, survives restarts)
 # ---------------------------------------------------------------------------
 
@@ -54,6 +84,18 @@ def find_device(name: str) -> dict | None:
 def base_url() -> str:
     host = request.host.split(":")[0]
     return f"http://{host}:8099"
+
+
+_supervisor_session = None
+
+def _supervisor_session_get():
+    global _supervisor_session
+    if _supervisor_session is None:
+        import requests as _requests
+        _supervisor_session = _requests.Session()
+        token = os.environ.get("SUPERVISOR_TOKEN", "")
+        _supervisor_session.headers.update({"Authorization": f"Bearer {token}"})
+    return _supervisor_session
 
 
 # ---------------------------------------------------------------------------
@@ -363,15 +405,29 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
 
 <!-- TAB: Configurações -->
 <div class="main page" id="tab-settings">
-  <div class="section-title">Informações</div>
+
+  <div class="section-title">Versão e atualização</div>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:.82rem;color:var(--text2)">Versão instalada</div>
+      <div style="font-size:1.1rem;font-weight:500;margin-top:4px" id="ver-current">—</div>
+      <div style="font-size:.78rem;color:var(--text2);margin-top:4px" id="ver-latest"></div>
+    </div>
+    <div id="update-area">
+      <button class="btn btn-secondary" id="check-update-btn" onclick="checkUpdate()">🔄 Verificar atualização</button>
+    </div>
+  </div>
+
+  <div class="section-title">Informações técnicas</div>
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border)">
-    <p style="font-size:.85rem;color:var(--text2);line-height:1.8">
-      <b style="color:var(--text)">go2rtc API:</b> <a href="http://homeassistant.local:1984" target="_blank" style="color:var(--accent)">:1984</a><br>
+    <p style="font-size:.85rem;color:var(--text2);line-height:1.9">
+      <b style="color:var(--text)">go2rtc API:</b> :1984<br>
       <b style="color:var(--text)">RTSP:</b> rtsp://&lt;IP&gt;:8554/intercom_&lt;call_id&gt;<br>
       <b style="color:var(--text)">WebRTC:</b> ws://&lt;IP&gt;:8555/api/ws?src=intercom_&lt;call_id&gt;<br>
       <b style="color:var(--text)">Health:</b> <a id="health-link" href="#" target="_blank" style="color:var(--accent)">/health</a>
     </p>
   </div>
+
   <div class="section-title">Eventos HA disponíveis</div>
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);font-family:monospace;font-size:.8rem;line-height:2;color:var(--text2)">
     ha_intercom_call_initiated<br>
@@ -660,9 +716,47 @@ async function pollCalls() {
   } catch {}
 }
 
+// ---- Update management ----
+async function checkUpdate() {
+  const btn = document.getElementById('check-update-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Verificando...';
+  try {
+    const r = await fetch(`${BASE}/api/addon/info`);
+    const d = await r.json();
+    document.getElementById('ver-current').textContent = d.version || '—';
+    const area = document.getElementById('update-area');
+    if (d.update_available) {
+      document.getElementById('ver-latest').textContent = '🔔 Nova versão disponível: ' + d.version_latest;
+      area.innerHTML = `<button class="btn btn-primary" onclick="triggerUpdate()">⬆️ Atualizar para ${d.version_latest}</button>`;
+    } else {
+      document.getElementById('ver-latest').textContent = d.version_latest ? '✅ Atualizado (latest: ' + d.version_latest + ')' : '';
+      btn.disabled = false;
+      btn.innerHTML = '🔄 Verificar atualização';
+    }
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = '🔄 Verificar atualização';
+    showToast('Erro ao verificar atualização', 'error');
+  }
+}
+
+async function triggerUpdate() {
+  const area = document.getElementById('update-area');
+  area.innerHTML = '<span class="spinner"></span><span style="font-size:.85rem;color:var(--text2)">Iniciando atualização — o add-on será reiniciado...</span>';
+  try {
+    await fetch(`${BASE}/api/addon/update`, {method: 'POST'});
+    showToast('✅ Atualização iniciada! O add-on será reiniciado.');
+  } catch {
+    showToast('Erro ao iniciar atualização', 'error');
+    area.innerHTML = '<button class="btn btn-primary" onclick="triggerUpdate()">⬆️ Tentar novamente</button>';
+  }
+}
+
 // Init
 renderDeviceGrid();
 checkHealth();
+checkUpdate();
 pollCalls();
 setInterval(pollCalls, 3000);
 setInterval(checkHealth, 10000);
