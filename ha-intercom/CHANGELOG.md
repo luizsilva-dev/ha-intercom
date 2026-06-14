@@ -1,5 +1,14 @@
 # Changelog — HA Intercom
 
+## 1.3.3
+- Correção: "failed to fetch" no atendimento WebRTC — SDP offer agora proxiado pelo Flask (`/api/webrtc/offer`) para evitar CORS/bloqueio de porta
+- Áudio bidirecional: duas RTCPeerConnections por chamada (publisher e subscriber) com streams direcionais `_caller`/`_callee`
+- Página de chamada com papéis (caller/callee): chamador vê "Ligando..." e aguarda atendimento via polling; chamado vê botões Atender/Rejeitar
+- Sons de toque: padrão brasileiro (dois bipes) para chamada recebida; tom de discagem para chamador
+- Vibração haptic ao receber chamada
+- Chamador redirecionado automaticamente para página de chamada ao iniciar (`/call/{id}?role=caller`)
+- Notificação push incluiu `?role=callee` na URL de atendimento
+
 ## 1.3.2
 - Correção: criação de stream go2rtc com `echo:` falhava com 400 porque `requests` codificava o `:` como `%3A`; URL agora construída manualmente
 - Correção: atender chamada já em estado `active` (duplo toque na notificação) retornava 404; endpoint agora retorna 200 com o estado atual

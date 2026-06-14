@@ -256,166 +256,303 @@ def index():
 
 @app.get("/call/<call_id>")
 def call_page(call_id: str):
-    """WebRTC answer page — opened when user taps 'Atender' on the notification."""
+    """WebRTC call page — used by both caller (role=caller) and callee (role=callee)."""
     ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
+    role = request.args.get("role", "callee")
     call = manager.get_call(call_id)
     stream = call.stream_name if call else f"intercom_{call_id}"
-    caller = call.caller if call else "?"
-    return _build_call_page(call_id, caller, stream, ingress_path)
+    caller_name = call.caller if call else "?"
+    callee_name = call.callee if call else "?"
+    return _build_call_page(call_id, caller_name, callee_name, stream, ingress_path, role)
 
 
-def _build_call_page(call_id: str, caller: str, stream_name: str, ingress_path: str) -> str:
+@app.post("/api/webrtc/offer")
+def webrtc_offer_proxy():
+    """Proxy WebRTC SDP offer to go2rtc — avoids CORS and port-blocking issues."""
+    src = request.args.get("src")
+    dst = request.args.get("dst")
+    if not src and not dst:
+        return jsonify({"error": "src or dst required"}), 400
+    param = f"src={src}" if src else f"dst={dst}"
+    sdp_data = request.get_data()
+    try:
+        import requests as _req
+        r = _req.post(
+            f"http://localhost:1984/api/webrtc?{param}",
+            data=sdp_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        return Response(r.content, status=r.status_code, content_type="application/sdp")
+    except Exception as e:
+        logger.error("go2rtc WebRTC proxy: %s", e)
+        return jsonify({"error": str(e)}), 502
+
+
+def _build_call_page(call_id: str, caller_name: str, callee_name: str,
+                     stream_name: str, ingress_path: str, role: str) -> str:
     base = ingress_path
+    is_caller = role == "caller"
+    other_name = callee_name if is_caller else caller_name
+    my_stream = f"{stream_name}_caller" if is_caller else f"{stream_name}_callee"
+    peer_stream = f"{stream_name}_callee" if is_caller else f"{stream_name}_caller"
+    initial_status = f"Ligando para {other_name}..." if is_caller else f"Chamada de {caller_name}"
+    initial_icon = "📲" if is_caller else "📱"
+
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>Chamada — HA Intercom</title>
+<title>{"Ligando" if is_caller else "Chamada"} — HA Intercom</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:100vh;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:24px}}
-.avatar{{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#0d47a1,#03a9f4);
-  display:flex;align-items:center;justify-content:center;font-size:2.8rem;
-  box-shadow:0 0 0 8px rgba(3,169,244,.15),0 0 0 16px rgba(3,169,244,.07);animation:ring 1.5s ease-in-out infinite}}
-@keyframes ring{{0%,100%{{box-shadow:0 0 0 8px rgba(3,169,244,.15),0 0 0 16px rgba(3,169,244,.07)}}
-  50%{{box-shadow:0 0 0 12px rgba(3,169,244,.2),0 0 0 24px rgba(3,169,244,.08)}}}}
-.caller-name{{font-size:1.5rem;font-weight:500;text-align:center}}
-.call-status{{font-size:.9rem;color:#9aa0a6;text-align:center}}
-.actions{{display:flex;gap:32px;margin-top:8px}}
-.action-btn{{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;border:none;background:transparent}}
-.action-btn .circle{{width:68px;height:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.8rem;transition:transform .15s}}
-.action-btn:active .circle{{transform:scale(.92)}}
-.action-btn .label{{font-size:.78rem;color:#9aa0a6}}
-.btn-answer .circle{{background:#4caf50}}
-.btn-reject .circle{{background:#f44336}}
-.webrtc-section{{width:100%;max-width:480px;display:none}}
-.webrtc-section.active{{display:block}}
-video{{width:100%;border-radius:12px;background:#1c1f26}}
-.webrtc-controls{{display:flex;justify-content:center;margin-top:16px}}
-.btn-hangup{{background:#f44336;color:#fff;border:none;border-radius:24px;padding:12px 32px;font-size:1rem;cursor:pointer}}
-#status-msg{{font-size:.82rem;color:#9aa0a6;text-align:center;min-height:20px}}
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px}}
+.avatar{{width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg,#0d47a1,#03a9f4);
+  display:flex;align-items:center;justify-content:center;font-size:3rem;
+  box-shadow:0 0 0 0 rgba(3,169,244,.4);animation:pulse-ring 1.5s ease-out infinite}}
+@keyframes pulse-ring{{0%{{box-shadow:0 0 0 0 rgba(3,169,244,.5)}}70%{{box-shadow:0 0 0 20px rgba(3,169,244,0)}}100%{{box-shadow:0 0 0 0 rgba(3,169,244,0)}}}}
+.avatar.active{{animation:none;box-shadow:0 0 0 4px #4caf50}}
+.avatar.ended{{animation:none;background:#333}}
+.peer-name{{font-size:1.6rem;font-weight:500}}
+.status{{font-size:.9rem;color:#9aa0a6}}
+.timer{{font-size:1rem;color:#4caf50;font-variant-numeric:tabular-nums;display:none}}
+.actions{{display:flex;gap:36px;margin-top:12px}}
+.action-btn{{display:flex;flex-direction:column;align-items:center;gap:10px;background:none;border:none;cursor:pointer;color:#e8eaed}}
+.circle{{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:2rem;transition:transform .1s}}
+.action-btn:active .circle{{transform:scale(.9)}}
+.circle-green{{background:#4caf50}}.circle-red{{background:#f44336}}
+.action-lbl{{font-size:.78rem;color:#9aa0a6}}
+#err-msg{{font-size:.8rem;color:#f44336;text-align:center;min-height:18px;max-width:300px}}
+audio#remote-audio{{display:none}}
 </style>
 </head>
 <body>
-<div class="avatar" id="avatar">📱</div>
-<div class="caller-name" id="caller-name">{caller}</div>
-<div class="call-status" id="call-status">Chamada recebida</div>
-<div id="status-msg"></div>
+<div class="avatar" id="avatar">{initial_icon}</div>
+<div class="peer-name">{other_name}</div>
+<div class="status" id="status">{initial_status}</div>
+<div class="timer" id="timer">0:00</div>
+<div id="err-msg"></div>
 
 <div class="actions" id="actions">
-  <button class="action-btn btn-answer" onclick="answerCall()">
-    <div class="circle">📞</div>
-    <div class="label">Atender</div>
-  </button>
-  <button class="action-btn btn-reject" onclick="rejectCall()">
-    <div class="circle">📵</div>
-    <div class="label">Rejeitar</div>
+{"" if is_caller else """
+  <button class="action-btn" onclick="answerCall()">
+    <div class="circle circle-green">📞</div>
+    <div class="action-lbl">Atender</div>
+  </button>"""}
+  <button class="action-btn" id="cancel-btn" onclick="cancelOrHangup()">
+    <div class="circle circle-red">📵</div>
+    <div class="action-lbl">{"Cancelar" if is_caller else "Rejeitar"}</div>
   </button>
 </div>
 
-<div class="webrtc-section" id="webrtc-section">
-  <video id="remote-video" autoplay playsinline></video>
-  <div class="webrtc-controls">
-    <button class="btn-hangup" onclick="hangupCall()">📵 Encerrar</button>
-  </div>
-</div>
+<audio id="remote-audio" autoplay></audio>
 
 <script>
 const BASE = '{base}';
 const CALL_ID = '{call_id}';
-const STREAM = '{stream_name}';
-let pc = null;
+const MY_STREAM = '{my_stream}';
+const PEER_STREAM = '{peer_stream}';
+const ROLE = '{role}';
+let pcSend = null, pcRecv = null;
+let connected = false;
+let startTime = null;
+let timerInterval = null;
+let pollInterval = null;
 
-async function answerCall() {{
-  document.getElementById('call-status').textContent = 'Conectando...';
-  document.getElementById('actions').style.display = 'none';
-  document.getElementById('avatar').style.animation = 'none';
+// ---- Ring tone (Web Audio API) ----
+let audioCtx = null;
+let ringInterval = null;
 
+function getAudioCtx() {{
+  if (!audioCtx) {{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audioCtx = new AC();
+  }}
+  return audioCtx;
+}}
+
+function playTone(freq, dur, startAt, vol=0.25) {{
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur - 0.01);
+  osc.start(startAt); osc.stop(startAt + dur);
+}}
+
+function ringOnce(type) {{
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  if (type === 'incoming') {{
+    // Padrão telefone brasileiro: dois toques rápidos
+    playTone(480, 0.35, t);
+    playTone(480, 0.35, t + 0.45);
+  }} else {{
+    // Chamando: tom único mais suave
+    playTone(440, 0.6, t, 0.18);
+    playTone(480, 0.6, t + 0.05, 0.12);
+  }}
+}}
+
+function startRing(type) {{
+  stopRing();
+  ringOnce(type);
+  const interval = type === 'incoming' ? 3200 : 4000;
+  ringInterval = setInterval(() => ringOnce(type), interval);
+  if (navigator.vibrate && type === 'incoming') {{
+    navigator.vibrate([400, 200, 400, 1200, 400, 200, 400, 2000]);
+    ringInterval2 = setInterval(() => navigator.vibrate([400,200,400,1200,400,200,400]), 4200);
+  }}
+}}
+let ringInterval2 = null;
+function stopRing() {{
+  if (ringInterval) {{ clearInterval(ringInterval); ringInterval = null; }}
+  if (ringInterval2) {{ clearInterval(ringInterval2); ringInterval2 = null; }}
+  if (navigator.vibrate) navigator.vibrate(0);
+}}
+
+// ---- Call timer ----
+function startTimer() {{
+  startTime = Date.now();
+  const el = document.getElementById('timer');
+  el.style.display = 'block';
+  timerInterval = setInterval(() => {{
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    el.textContent = Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  }}, 1000);
+}}
+
+// ---- WebRTC connection ----
+async function connectWebRTC() {{
+  setStatus('Conectando áudio...');
   try {{
-    // Answer via API (idempotent — 200 even if already active)
-    const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
-    const answerData = await r.json();
-    if (!r.ok && answerData.error !== 'already_active') throw new Error(answerData.error || 'Failed to answer');
+    const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
 
-    // Request mic
-    const localStream = await navigator.mediaDevices.getUserMedia({{audio:true, video:false}});
+    // 1. Send my audio → go2rtc as publisher
+    pcSend = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
+    stream.getTracks().forEach(t => pcSend.addTrack(t, stream));
+    const offer = await pcSend.createOffer();
+    await pcSend.setLocalDescription(offer);
+    const r1 = await fetch(BASE + '/api/webrtc/offer?dst=' + MY_STREAM, {{
+      method:'POST', body:offer.sdp,
+      headers:{{'Content-Type':'application/x-www-form-urlencoded'}}
+    }});
+    if (!r1.ok) throw new Error('Falha ao publicar áudio: ' + r1.status);
+    const ans1 = await r1.text();
+    await pcSend.setRemoteDescription({{type:'answer', sdp:ans1}});
 
-    // WebRTC via go2rtc
-    pc = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-    pc.ontrack = e => {{
-      const vid = document.getElementById('remote-video');
-      vid.srcObject = e.streams[0];
-      document.getElementById('webrtc-section').classList.add('active');
-      document.getElementById('call-status').textContent = 'Em chamada';
-      setStatus('');
+    // 2. Receive peer audio ← go2rtc as subscriber
+    pcRecv = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
+    pcRecv.addTransceiver('audio', {{direction:'recvonly'}});
+    pcRecv.ontrack = e => {{
+      document.getElementById('remote-audio').srcObject = e.streams[0];
     }};
+    const offer2 = await pcRecv.createOffer();
+    await pcRecv.setLocalDescription(offer2);
+    const r2 = await fetch(BASE + '/api/webrtc/offer?src=' + PEER_STREAM, {{
+      method:'POST', body:offer2.sdp,
+      headers:{{'Content-Type':'application/x-www-form-urlencoded'}}
+    }});
+    if (!r2.ok) throw new Error('Falha ao receber áudio: ' + r2.status);
+    const ans2 = await r2.text();
+    await pcRecv.setRemoteDescription({{type:'answer', sdp:ans2}});
 
-    pc.oniceconnectionstatechange = () => {{
-      if (['disconnected','failed','closed'].includes(pc.iceConnectionState)) {{
-        setStatus('Conexão encerrada');
-        endUI();
+    connected = true;
+    document.getElementById('avatar').className = 'avatar active';
+    setStatus('Em chamada');
+    startTimer();
+    setErr('');
+
+    // Replace cancel button label
+    document.querySelector('#cancel-btn .action-lbl').textContent = 'Encerrar';
+    document.querySelector('#cancel-btn .circle').textContent = '📵';
+
+    pcRecv.oniceconnectionstatechange = () => {{
+      if (['disconnected','failed','closed'].includes(pcRecv.iceConnectionState) && connected) {{
+        endUI('Chamada encerrada');
       }}
     }};
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    // Signaling via go2rtc WebRTC HTTP API
-    const wsHost = window.location.hostname;
-    const sigResp = await fetch('http://' + wsHost + ':1984/api/webrtc?src=' + STREAM, {{
-      method: 'POST',
-      body: offer.sdp,
-      headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-    }});
-    if (!sigResp.ok) throw new Error('go2rtc signaling failed: ' + sigResp.status);
-    const answerSdp = await sigResp.text();
-    await pc.setRemoteDescription({{type:'answer', sdp:answerSdp}});
-
   }} catch(e) {{
-    setStatus('Erro: ' + e.message);
-    document.getElementById('actions').style.display = 'flex';
-    document.getElementById('call-status').textContent = 'Chamada recebida';
+    setErr('Erro: ' + e.message);
+    setStatus('Falha na conexão');
   }}
 }}
 
-async function rejectCall() {{
-  await fetch(BASE + '/api/call/reject/' + CALL_ID, {{method:'POST'}});
-  window.history.back();
-}}
-
-async function hangupCall() {{
-  await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}});
-  if (pc) pc.close();
-  endUI();
-}}
-
-function endUI() {{
-  document.getElementById('webrtc-section').classList.remove('active');
-  document.getElementById('call-status').textContent = 'Chamada encerrada';
-  document.getElementById('avatar').textContent = '📴';
-  setTimeout(() => window.history.back(), 2000);
-}}
-
-function setStatus(msg) {{
-  document.getElementById('status-msg').textContent = msg;
-}}
-
-// Auto-check if call is still ringing
-setTimeout(async () => {{
-  const r = await fetch(BASE + '/api/call/' + CALL_ID).catch(() => null);
-  if (r) {{
+// ---- Actions ----
+async function answerCall() {{
+  stopRing();
+  document.getElementById('actions').querySelector('.circle-green')?.closest('button')?.remove();
+  setStatus('Atendendo...');
+  try {{
+    const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
     const d = await r.json();
-    if (d.state === 'ended' || d.state === 'timeout' || d.state === 'rejected') {{
-      setStatus('Chamada não disponível');
-      document.getElementById('call-status').textContent = 'Chamada encerrada';
-      setTimeout(() => window.history.back(), 2000);
-    }}
+    if (!r.ok && d.state !== 'active') throw new Error(d.error || 'Erro ao atender');
+    await connectWebRTC();
+  }} catch(e) {{
+    setErr('Erro: ' + e.message);
   }}
-}}, 1000);
+}}
+
+async function cancelOrHangup() {{
+  stopRing();
+  stopPoll();
+  if (connected) {{
+    await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
+  }} else {{
+    await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
+  }}
+  if (pcSend) pcSend.close();
+  if (pcRecv) pcRecv.close();
+  endUI('Chamada encerrada');
+}}
+
+function endUI(msg) {{
+  stopRing();
+  stopPoll();
+  if (timerInterval) clearInterval(timerInterval);
+  connected = false;
+  setStatus(msg || 'Chamada encerrada');
+  document.getElementById('avatar').className = 'avatar ended';
+  document.getElementById('avatar').textContent = '📴';
+  document.getElementById('timer').style.display = 'none';
+  setTimeout(() => window.history.back(), 2500);
+}}
+
+function setStatus(s) {{ document.getElementById('status').textContent = s; }}
+function setErr(s) {{ document.getElementById('err-msg').textContent = s; }}
+
+// ---- Poll call state ----
+function startPoll() {{
+  pollInterval = setInterval(async () => {{
+    const r = await fetch(BASE + '/api/call/' + CALL_ID).catch(()=>null);
+    if (!r) return;
+    const d = await r.json();
+    if (d.state === 'active' && ROLE === 'caller' && !connected) {{
+      stopRing();
+      setStatus('Conectando...');
+      await connectWebRTC();
+    }} else if (['ended','rejected','timeout'].includes(d.state) && !connected) {{
+      endUI(d.state === 'rejected' ? 'Chamada rejeitada' : 'Chamada encerrada');
+    }}
+  }}, 2000);
+}}
+function stopPoll() {{ if (pollInterval) {{ clearInterval(pollInterval); pollInterval = null; }} }}
+
+// ---- Init ----
+if (ROLE === 'caller') {{
+  startRing('outgoing');
+  startPoll();
+}} else {{
+  startRing('incoming');
+}}
 </script>
 </body>
 </html>"""
@@ -706,7 +843,9 @@ async function initiateCall(caller, callee) {
       body: JSON.stringify({caller, callee})
     });
     const d = await r.json();
-    r.ok ? showToast('📞 Chamando ' + callee + '...') : showToast(d.error || 'Erro', 'error');
+    if (!r.ok) { showToast(d.error || 'Erro', 'error'); return; }
+    // Redirect caller to call page
+    window.location.href = `${BASE}/call/${d.call_id}?role=caller`;
   } catch { showToast('Erro de conexão', 'error'); }
 }
 
@@ -964,7 +1103,7 @@ setInterval(checkGo2rtc, 10000);
 def _notify_callee(callee: dict, caller_display: str, call_id: str, urls: dict):
     dtype = callee.get("type", "android")
     ingress = get_ingress_url()
-    answer_url = f"{ingress}/call/{call_id}" if ingress else f"/api/hassio_ingress/ha_intercom/call/{call_id}"
+    answer_url = f"{ingress}/call/{call_id}?role=callee" if ingress else f"/api/hassio_ingress/ha_intercom/call/{call_id}?role=callee"
 
     if dtype == "android":
         app_id = callee.get("mobile_app_id")

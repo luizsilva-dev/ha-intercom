@@ -127,17 +127,9 @@ class IntercomManager:
         self._delete_go2rtc_stream(call.stream_name)
 
     def _create_go2rtc_stream(self, stream_name: str):
-        """Add a two-way echo stream to go2rtc.
-        Build the URL manually — requests would percent-encode the colon in
-        'echo:' to 'echo%3A' which go2rtc does not accept.
-        """
-        try:
-            url = f"{self._go2rtc_url}/api/streams?name={stream_name}&src=echo:"
-            resp = requests.put(url, timeout=5)
-            resp.raise_for_status()
-            logger.debug("Created go2rtc stream: %s", stream_name)
-        except Exception as e:
-            logger.warning("Failed to create go2rtc stream %s: %s", stream_name, e)
+        """Streams are created dynamically by go2rtc when a WebRTC publisher
+        connects via ?dst=stream_name. No pre-creation needed."""
+        logger.debug("Stream %s will be created on-demand by go2rtc", stream_name)
 
     def _delete_go2rtc_stream(self, stream_name: str):
         try:
