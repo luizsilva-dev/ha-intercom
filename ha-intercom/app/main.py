@@ -24,6 +24,8 @@ DEVICES_PATH = "/data/intercom_devices.json"
 
 _start_time = time.time()
 _ingress_url: str = ""   # populated at first request or from Supervisor
+# SDP signaling store for P2P WebRTC (call_id -> {offer, answer})
+_sdp_store: dict[str, dict] = {}
 manager = IntercomManager(GO2RTC_URL, CALL_TIMEOUT, MAX_CALL_DURATION)
 ha = HAClient()
 
@@ -266,27 +268,44 @@ def call_page(call_id: str):
     return _build_call_page(call_id, caller_name, callee_name, stream, ingress_path, role)
 
 
-@app.post("/api/webrtc/offer")
-def webrtc_offer_proxy():
-    """Proxy WebRTC SDP offer to go2rtc — avoids CORS and port-blocking issues."""
-    src = request.args.get("src")
-    dst = request.args.get("dst")
-    if not src and not dst:
-        return jsonify({"error": "src or dst required"}), 400
-    param = f"src={src}" if src else f"dst={dst}"
-    sdp_data = request.get_data()
-    try:
-        import requests as _req
-        r = _req.post(
-            f"http://localhost:1984/api/webrtc?{param}",
-            data=sdp_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=15,
-        )
-        return Response(r.content, status=r.status_code, content_type="application/sdp")
-    except Exception as e:
-        logger.error("go2rtc WebRTC proxy: %s", e)
-        return jsonify({"error": str(e)}), 502
+@app.post("/api/call/<call_id>/sdp/offer")
+def post_sdp_offer(call_id: str):
+    """Caller posts their SDP offer for P2P WebRTC signaling."""
+    sdp = request.get_data(as_text=True)
+    if not sdp:
+        return jsonify({"error": "empty body"}), 400
+    _sdp_store.setdefault(call_id, {})["offer"] = sdp
+    logger.debug("SDP offer stored for call %s", call_id)
+    return "", 204
+
+
+@app.get("/api/call/<call_id>/sdp/offer")
+def get_sdp_offer(call_id: str):
+    """Callee polls for caller's SDP offer."""
+    sdp = _sdp_store.get(call_id, {}).get("offer")
+    if not sdp:
+        return "", 204
+    return Response(sdp, content_type="application/sdp")
+
+
+@app.post("/api/call/<call_id>/sdp/answer")
+def post_sdp_answer(call_id: str):
+    """Callee posts their SDP answer."""
+    sdp = request.get_data(as_text=True)
+    if not sdp:
+        return jsonify({"error": "empty body"}), 400
+    _sdp_store.setdefault(call_id, {})["answer"] = sdp
+    logger.debug("SDP answer stored for call %s", call_id)
+    return "", 204
+
+
+@app.get("/api/call/<call_id>/sdp/answer")
+def get_sdp_answer(call_id: str):
+    """Caller polls for callee's SDP answer."""
+    sdp = _sdp_store.get(call_id, {}).get("answer")
+    if not sdp:
+        return "", 204
+    return Response(sdp, content_type="application/sdp")
 
 
 def _build_call_page(call_id: str, caller_name: str, callee_name: str,
@@ -294,10 +313,9 @@ def _build_call_page(call_id: str, caller_name: str, callee_name: str,
     base = ingress_path
     is_caller = role == "caller"
     other_name = callee_name if is_caller else caller_name
-    my_stream = f"{stream_name}_caller" if is_caller else f"{stream_name}_callee"
-    peer_stream = f"{stream_name}_callee" if is_caller else f"{stream_name}_caller"
-    initial_status = f"Ligando para {other_name}..." if is_caller else f"Chamada de {caller_name}"
+    initial_status = "Ligando para " + other_name + "..." if is_caller else "Chamada de " + caller_name
     initial_icon = "📲" if is_caller else "📱"
+    page_title = "Ligando" if is_caller else "Chamada"
     cancel_lbl = "Cancelar" if is_caller else "Rejeitar"
     answer_btn = "" if is_caller else (
         '<button class="action-btn" onclick="answerCall()">'
@@ -310,7 +328,7 @@ def _build_call_page(call_id: str, caller_name: str, callee_name: str,
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>{"Ligando" if is_caller else "Chamada"} — HA Intercom</title>
+<title>{page_title} — HA Intercom</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -318,7 +336,7 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px}}
 .avatar{{width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg,#0d47a1,#03a9f4);
   display:flex;align-items:center;justify-content:center;font-size:3rem;
-  box-shadow:0 0 0 0 rgba(3,169,244,.4);animation:pulse-ring 1.5s ease-out infinite}}
+  animation:pulse-ring 1.5s ease-out infinite}}
 @keyframes pulse-ring{{0%{{box-shadow:0 0 0 0 rgba(3,169,244,.5)}}70%{{box-shadow:0 0 0 20px rgba(3,169,244,0)}}100%{{box-shadow:0 0 0 0 rgba(3,169,244,0)}}}}
 .avatar.active{{animation:none;box-shadow:0 0 0 4px #4caf50}}
 .avatar.ended{{animation:none;background:#333}}
@@ -332,7 +350,6 @@ body{{font-family:Roboto,sans-serif;background:#0d1117;color:#e8eaed;min-height:
 .circle-green{{background:#4caf50}}.circle-red{{background:#f44336}}
 .action-lbl{{font-size:.78rem;color:#9aa0a6}}
 #err-msg{{font-size:.8rem;color:#f44336;text-align:center;min-height:18px;max-width:300px}}
-audio#remote-audio{{display:none}}
 </style>
 </head>
 <body>
@@ -350,24 +367,22 @@ audio#remote-audio{{display:none}}
   </button>
 </div>
 
-<audio id="remote-audio" autoplay></audio>
+<audio id="remote-audio" autoplay playsinline></audio>
 
 <script>
 const BASE = '{base}';
 const CALL_ID = '{call_id}';
-const MY_STREAM = '{my_stream}';
-const PEER_STREAM = '{peer_stream}';
 const ROLE = '{role}';
-let pcSend = null, pcRecv = null;
+let pc = null;
 let connected = false;
-let startTime = null;
 let timerInterval = null;
 let pollInterval = null;
+let answerPollInterval = null;
+let ringInterval = null;
+let ringInterval2 = null;
 
 // ---- Ring tone (Web Audio API) ----
 let audioCtx = null;
-let ringInterval = null;
-
 function getAudioCtx() {{
   if (!audioCtx) {{
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -375,121 +390,113 @@ function getAudioCtx() {{
   }}
   return audioCtx;
 }}
-
-function playTone(freq, dur, startAt, vol=0.25) {{
-  const ctx = getAudioCtx();
-  if (!ctx) return;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
+function playTone(freq, dur, startAt, vol) {{
+  const ctx = getAudioCtx(); if (!ctx) return;
+  const osc = ctx.createOscillator(), gain = ctx.createGain();
   osc.connect(gain); gain.connect(ctx.destination);
-  osc.type = 'sine';
-  osc.frequency.value = freq;
-  gain.gain.setValueAtTime(vol, startAt);
+  osc.type = 'sine'; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol || 0.25, startAt);
   gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur - 0.01);
   osc.start(startAt); osc.stop(startAt + dur);
 }}
-
 function ringOnce(type) {{
-  const ctx = getAudioCtx();
-  if (!ctx) return;
+  const ctx = getAudioCtx(); if (!ctx) return;
   const t = ctx.currentTime;
-  if (type === 'incoming') {{
-    // Padrão telefone brasileiro: dois toques rápidos
-    playTone(480, 0.35, t);
-    playTone(480, 0.35, t + 0.45);
-  }} else {{
-    // Chamando: tom único mais suave
-    playTone(440, 0.6, t, 0.18);
-    playTone(480, 0.6, t + 0.05, 0.12);
-  }}
+  if (type === 'incoming') {{ playTone(480, 0.35, t); playTone(480, 0.35, t + 0.45); }}
+  else {{ playTone(440, 0.6, t, 0.18); playTone(480, 0.6, t + 0.05, 0.12); }}
 }}
-
 function startRing(type) {{
-  stopRing();
-  ringOnce(type);
-  const interval = type === 'incoming' ? 3200 : 4000;
-  ringInterval = setInterval(() => ringOnce(type), interval);
+  stopRing(); ringOnce(type);
+  ringInterval = setInterval(() => ringOnce(type), type === 'incoming' ? 3200 : 4000);
   if (navigator.vibrate && type === 'incoming') {{
-    navigator.vibrate([400, 200, 400, 1200, 400, 200, 400, 2000]);
+    navigator.vibrate([400,200,400,1200,400,200,400,2000]);
     ringInterval2 = setInterval(() => navigator.vibrate([400,200,400,1200,400,200,400]), 4200);
   }}
 }}
-let ringInterval2 = null;
 function stopRing() {{
   if (ringInterval) {{ clearInterval(ringInterval); ringInterval = null; }}
   if (ringInterval2) {{ clearInterval(ringInterval2); ringInterval2 = null; }}
   if (navigator.vibrate) navigator.vibrate(0);
 }}
 
-// ---- Call timer ----
+// ---- Timer ----
 function startTimer() {{
-  startTime = Date.now();
   const el = document.getElementById('timer');
   el.style.display = 'block';
   timerInterval = setInterval(() => {{
-    const s = Math.floor((Date.now() - startTime) / 1000);
+    const s = Math.floor((Date.now() - startTimer._t0) / 1000);
     el.textContent = Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
   }}, 1000);
+  startTimer._t0 = Date.now();
 }}
 
-// ---- WebRTC connection ----
-async function connectWebRTC() {{
-  setStatus('Conectando áudio...');
+// ---- P2P WebRTC helpers ----
+const ICE = {{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}};
+
+function waitForIce(pc) {{
+  return new Promise(resolve => {{
+    if (pc.iceGatheringState === 'complete') {{ resolve(); return; }}
+    pc.onicegatheringstatechange = () => {{ if (pc.iceGatheringState === 'complete') resolve(); }};
+    setTimeout(resolve, 5000); // fallback
+  }});
+}}
+
+function onConnected() {{
+  connected = true;
+  stopRing();
+  document.getElementById('avatar').className = 'avatar active';
+  setStatus('Em chamada');
+  startTimer();
+  setErr('');
+  document.querySelector('#cancel-btn .action-lbl').textContent = 'Encerrar';
+}}
+
+// ---- CALLER flow ----
+// 1. Create offer immediately, post to Flask
+// 2. Poll for callee's SDP answer
+// 3. When answer arrives → connected
+async function callerSetup() {{
+  setStatus('Aguardando microfone...');
   try {{
     const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
-
-    // 1. Send my audio → go2rtc as publisher
-    pcSend = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
-    stream.getTracks().forEach(t => pcSend.addTrack(t, stream));
-    const offer = await pcSend.createOffer();
-    await pcSend.setLocalDescription(offer);
-    const r1 = await fetch(BASE + '/api/webrtc/offer?dst=' + MY_STREAM, {{
-      method:'POST', body:offer.sdp,
-      headers:{{'Content-Type':'application/x-www-form-urlencoded'}}
-    }});
-    if (!r1.ok) throw new Error('Falha ao publicar áudio: ' + r1.status);
-    const ans1 = await r1.text();
-    await pcSend.setRemoteDescription({{type:'answer', sdp:ans1}});
-
-    // 2. Receive peer audio ← go2rtc as subscriber
-    pcRecv = new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
-    pcRecv.addTransceiver('audio', {{direction:'recvonly'}});
-    pcRecv.ontrack = e => {{
-      document.getElementById('remote-audio').srcObject = e.streams[0];
+    pc = new RTCPeerConnection(ICE);
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    pc.ontrack = e => {{ document.getElementById('remote-audio').srcObject = e.streams[0]; }};
+    pc.oniceconnectionstatechange = () => {{
+      if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected) endUI('Chamada encerrada');
     }};
-    const offer2 = await pcRecv.createOffer();
-    await pcRecv.setLocalDescription(offer2);
-    const r2 = await fetch(BASE + '/api/webrtc/offer?src=' + PEER_STREAM, {{
-      method:'POST', body:offer2.sdp,
-      headers:{{'Content-Type':'application/x-www-form-urlencoded'}}
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    setStatus('Ligando para {other_name}...');
+    await waitForIce(pc);
+
+    const r = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/offer', {{
+      method:'POST', body: pc.localDescription.sdp,
+      headers:{{'Content-Type':'application/sdp'}}
     }});
-    if (!r2.ok) throw new Error('Falha ao receber áudio: ' + r2.status);
-    const ans2 = await r2.text();
-    await pcRecv.setRemoteDescription({{type:'answer', sdp:ans2}});
+    if (!r.ok) throw new Error('Erro ao enviar oferta: ' + r.status);
 
-    connected = true;
-    document.getElementById('avatar').className = 'avatar active';
-    setStatus('Em chamada');
-    startTimer();
-    setErr('');
-
-    // Replace cancel button label
-    document.querySelector('#cancel-btn .action-lbl').textContent = 'Encerrar';
-    document.querySelector('#cancel-btn .circle').textContent = '📵';
-
-    pcRecv.oniceconnectionstatechange = () => {{
-      if (['disconnected','failed','closed'].includes(pcRecv.iceConnectionState) && connected) {{
-        endUI('Chamada encerrada');
-      }}
-    }};
+    // Poll for answer
+    answerPollInterval = setInterval(async () => {{
+      const r2 = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/answer').catch(()=>null);
+      if (!r2 || r2.status === 204) return;
+      clearInterval(answerPollInterval);
+      const sdp = await r2.text();
+      await pc.setRemoteDescription({{type:'answer', sdp}});
+      onConnected();
+    }}, 1000);
 
   }} catch(e) {{
     setErr('Erro: ' + e.message);
-    setStatus('Falha na conexão');
+    setStatus('Falha ao iniciar chamada');
   }}
 }}
 
-// ---- Actions ----
+// ---- CALLEE flow ----
+// 1. Answer call state
+// 2. Poll for caller's SDP offer
+// 3. Create answer, post to Flask → connected
 async function answerCall() {{
   stopRing();
   document.getElementById('actions').querySelector('.circle-green')?.closest('button')?.remove();
@@ -498,29 +505,58 @@ async function answerCall() {{
     const r = await fetch(BASE + '/api/call/answer/' + CALL_ID, {{method:'POST'}});
     const d = await r.json();
     if (!r.ok && d.state !== 'active') throw new Error(d.error || 'Erro ao atender');
-    await connectWebRTC();
+    await calleeConnect();
   }} catch(e) {{
     setErr('Erro: ' + e.message);
   }}
 }}
 
+async function calleeConnect() {{
+  setStatus('Aguardando sinal...');
+  // Poll for caller's offer (up to 15s)
+  let offerSdp = null;
+  for (let i = 0; i < 15; i++) {{
+    const r = await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/offer').catch(()=>null);
+    if (r && r.status === 200) {{ offerSdp = await r.text(); break; }}
+    await new Promise(res => setTimeout(res, 1000));
+  }}
+  if (!offerSdp) {{ setErr('Timeout: oferta WebRTC não recebida'); return; }}
+
+  setStatus('Conectando áudio...');
+  const stream = await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+  pc = new RTCPeerConnection(ICE);
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  pc.ontrack = e => {{ document.getElementById('remote-audio').srcObject = e.streams[0]; }};
+  pc.oniceconnectionstatechange = () => {{
+    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && connected) endUI('Chamada encerrada');
+  }};
+
+  await pc.setRemoteDescription({{type:'offer', sdp:offerSdp}});
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await waitForIce(pc);
+
+  await fetch(BASE + '/api/call/' + CALL_ID + '/sdp/answer', {{
+    method:'POST', body: pc.localDescription.sdp,
+    headers:{{'Content-Type':'application/sdp'}}
+  }});
+  onConnected();
+}}
+
+// ---- Hangup / cancel ----
 async function cancelOrHangup() {{
   stopRing();
   stopPoll();
-  if (connected) {{
-    await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
-  }} else {{
-    await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
-  }}
-  if (pcSend) pcSend.close();
-  if (pcRecv) pcRecv.close();
+  if (answerPollInterval) {{ clearInterval(answerPollInterval); answerPollInterval = null; }}
+  await fetch(BASE + '/api/call/hangup/' + CALL_ID, {{method:'POST'}}).catch(()=>{{}});
+  if (pc) pc.close();
   endUI('Chamada encerrada');
 }}
 
 function endUI(msg) {{
-  stopRing();
-  stopPoll();
-  if (timerInterval) clearInterval(timerInterval);
+  stopRing(); stopPoll();
+  if (timerInterval) {{ clearInterval(timerInterval); timerInterval = null; }}
+  if (answerPollInterval) {{ clearInterval(answerPollInterval); answerPollInterval = null; }}
   connected = false;
   setStatus(msg || 'Chamada encerrada');
   document.getElementById('avatar').className = 'avatar ended';
@@ -532,17 +568,13 @@ function endUI(msg) {{
 function setStatus(s) {{ document.getElementById('status').textContent = s; }}
 function setErr(s) {{ document.getElementById('err-msg').textContent = s; }}
 
-// ---- Poll call state ----
+// ---- Poll call state (detect reject/timeout for caller) ----
 function startPoll() {{
   pollInterval = setInterval(async () => {{
     const r = await fetch(BASE + '/api/call/' + CALL_ID).catch(()=>null);
     if (!r) return;
     const d = await r.json();
-    if (d.state === 'active' && ROLE === 'caller' && !connected) {{
-      stopRing();
-      setStatus('Conectando...');
-      await connectWebRTC();
-    }} else if (['ended','rejected','timeout'].includes(d.state) && !connected) {{
+    if (['ended','rejected','timeout'].includes(d.state) && !connected) {{
       endUI(d.state === 'rejected' ? 'Chamada rejeitada' : 'Chamada encerrada');
     }}
   }}, 2000);
@@ -553,6 +585,7 @@ function stopPoll() {{ if (pollInterval) {{ clearInterval(pollInterval); pollInt
 if (ROLE === 'caller') {{
   startRing('outgoing');
   startPoll();
+  callerSetup();
 }} else {{
   startRing('incoming');
 }}

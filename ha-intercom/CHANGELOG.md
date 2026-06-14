@@ -1,5 +1,12 @@
 # Changelog — HA Intercom
 
+## 1.3.5
+- Correção: go2rtc não suporta publicação WebRTC via HTTP POST (`?dst=`) — retornava 404 ao atender
+- Nova arquitetura: WebRTC P2P direto entre browsers (sem go2rtc para roteamento de áudio)
+- Flask agora funciona como servidor de sinalização SDP (endpoints `/api/call/{id}/sdp/offer` e `/sdp/answer`)
+- Chamador cria oferta SDP imediatamente ao abrir a página de chamada; chamado busca a oferta ao atender
+- Ambos aguardam ICE gathering completo antes de trocar SDPs (sem trickle ICE)
+
 ## 1.3.4
 - Correção: SyntaxError no f-string da página de chamada (triple-quote dentro de f-string não suportado no Python 3.11); extraído para variável antes do f-string
 
