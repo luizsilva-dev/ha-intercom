@@ -62,10 +62,18 @@ def base_url() -> str:
 
 @app.get("/health")
 def health():
+    import urllib.request
+    go2rtc_ok = False
+    try:
+        with urllib.request.urlopen("http://localhost:1984/api", timeout=2) as r:
+            go2rtc_ok = r.status == 200
+    except Exception:
+        pass
     return jsonify({
         "status": "ok",
         "uptime": int(time.time() - _start_time),
         "active_calls": len(manager.get_active_calls()),
+        "go2rtc": go2rtc_ok,
     })
 
 
@@ -361,7 +369,7 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
       <b style="color:var(--text)">go2rtc API:</b> <a href="http://homeassistant.local:1984" target="_blank" style="color:var(--accent)">:1984</a><br>
       <b style="color:var(--text)">RTSP:</b> rtsp://&lt;IP&gt;:8554/intercom_&lt;call_id&gt;<br>
       <b style="color:var(--text)">WebRTC:</b> ws://&lt;IP&gt;:8555/api/ws?src=intercom_&lt;call_id&gt;<br>
-      <b style="color:var(--text)">Health:</b> <a href="/health" target="_blank" style="color:var(--accent)">/health</a>
+      <b style="color:var(--text)">Health:</b> <a id="health-link" href="#" target="_blank" style="color:var(--accent)">/health</a>
     </p>
   </div>
   <div class="section-title">Eventos HA disponíveis</div>
@@ -376,7 +384,9 @@ body{font-family:Roboto,sans-serif;background:var(--bg);color:var(--text);min-he
 <div class="toast" id="toast"></div>
 
 <script>
-const BASE = window.location.origin;
+// Use path-relative base so requests go through HA ingress proxy
+// regardless of whether accessed locally or via Nabu Casa remote UI.
+const BASE = window.location.pathname.replace(/\/$/, '').replace(/\/[^/]*$/, '') || '';
 
 // ---- Tab navigation ----
 function showTab(name) {
@@ -622,16 +632,21 @@ async function checkHealth() {
     const r = await fetch(`${BASE}/health`);
     const d = await r.json();
     document.getElementById('api-dot').className = 'dot';
+    document.getElementById('go2rtc-dot').className = d.go2rtc ? 'dot' : 'dot red';
     document.getElementById('uptime-label').textContent = '⏱ ' + formatDur(d.uptime);
+    document.getElementById('health-link').href = `${BASE}/health`;
   } catch {
     document.getElementById('api-dot').className = 'dot red';
   }
 }
 
 async function checkGo2rtc() {
+  // go2rtc health is checked server-side via /health to avoid CORS/cross-origin issues
   try {
-    const r = await fetch('/proxy/go2rtc/api', {signal: AbortSignal.timeout(3000)}).catch(() => null);
-    document.getElementById('go2rtc-dot').className = (r && r.ok) ? 'dot' : 'dot red';
+    const r = await fetch(`${BASE}/health`);
+    const d = await r.json();
+    // go2rtc is considered up if the supervisor reports ok
+    document.getElementById('go2rtc-dot').className = d.status === 'ok' ? 'dot' : 'dot red';
   } catch {
     document.getElementById('go2rtc-dot').className = 'dot red';
   }
@@ -651,6 +666,7 @@ checkHealth();
 pollCalls();
 setInterval(pollCalls, 3000);
 setInterval(checkHealth, 10000);
+setInterval(checkGo2rtc, 10000);
 </script>
 </body>
 </html>"""
