@@ -78,10 +78,15 @@ def _render_panel(devices: list) -> str:
         icon = "mdi:cellphone" if dtype == "android" else "mdi:home-assistant"
         room = dev.get("room", "")
         name = dev.get("name", "")
-        call_buttons = "".join(
-            f'<button class="call-btn" onclick="initiateCall(\'{name}\', \'{other[\"name\"]}\')">📞 {other["name"]}</button>'
-            for other in devices if other.get("name") != name
-        )
+        btn_parts = []
+        for other in devices:
+            if other.get("name") == name:
+                continue
+            oname = other.get("name", "")
+            btn_parts.append(
+                f'<button class="call-btn" onclick="initiateCall(\'{name}\', \'{oname}\')">📞 {oname}</button>'
+            )
+        call_buttons = "".join(btn_parts)
         device_cards += f"""
         <div class="device-card" id="card-{name}">
           <div class="device-header">
