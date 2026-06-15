@@ -207,8 +207,9 @@ function saveMyDevice(id) {
 
 function renderDevices() {
   const el = document.getElementById('deviceList');
-  if (!allDevices.length) { el.innerHTML = '<p class="empty">Nenhum dispositivo encontrado</p>'; return; }
-  el.innerHTML = allDevices.map(d =>
+  const list = allDevices.filter(d => d.id !== myDeviceId);
+  if (!list.length) { el.innerHTML = '<p class="empty">Nenhum dispositivo encontrado</p>'; return; }
+  el.innerHTML = list.map(d =>
     `<button class="device-btn" onclick="call('${d.id}')">Chamar ${d.name}</button>`
   ).join('');
 }

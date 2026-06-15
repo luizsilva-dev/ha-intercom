@@ -1,5 +1,8 @@
 # Changelog — HA Intercom
 
+## 2.0.3
+- UX: lista "Ligar para" oculta o dispositivo selecionado em "Estou usando" — evita ligar para si mesmo
+
 ## 2.0.2
 - Correção de áudio: `remoteAudio` agora é variável global acessível por `onConnected()`, que chama `.play()` quando ICE conecta
 - `srcObject` criado como `new MediaStream()` antes de `ontrack`, e reassociado ao elemento após adicionar cada faixa
