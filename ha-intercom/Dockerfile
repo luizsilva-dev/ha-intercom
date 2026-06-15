@@ -1,36 +1,10 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.19
+ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM ${BUILD_FROM}
 
-ARG GO2RTC_VERSION=1.9.4
+RUN apk add --no-cache python3 py3-pip py3-requests \
+    && pip3 install --break-system-packages flask
 
-# Install dependencies
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    curl \
-    ca-certificates \
-    tzdata
-
-# Download go2rtc binary
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        GO2RTC_ARCH="arm64"; \
-    else \
-        GO2RTC_ARCH="amd64"; \
-    fi && \
-    curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${GO2RTC_ARCH}" \
-        -o /usr/local/bin/go2rtc && \
-    chmod +x /usr/local/bin/go2rtc
-
-# Copy Python requirements and install
-COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
-
-# Copy application
+WORKDIR /app
 COPY app/ /app/
 
-# Copy go2rtc base config
-COPY go2rtc.yaml /etc/go2rtc.yaml
-
-# Python supervisor as PID 1 — bypasses s6-overlay entirely
-ENTRYPOINT ["/usr/bin/python3", "/app/supervisor.py"]
+CMD ["/usr/bin/python3", "/app/main.py"]
