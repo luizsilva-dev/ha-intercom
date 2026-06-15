@@ -1,148 +1,39 @@
-# Changelog — HA Intercom
+# Changelog — Intercom
 
-## 2.0.0
-- Reescrita completa do add-on como Flask puro (sem go2rtc, sem supervisor.py)
-- WebRTC P2P direto entre browsers com sinalização SDP via Flask
-- Descoberta automática de dispositivos mobile_app via Supervisor API
-- Detecção automática do dispositivo do usuário via header X-Remote-User-ID
-- Painel com tema escuro, lista de dispositivos e chamadas ativas (polling 3s)
-- Página de chamada com log de diagnóstico visível, botão de mudo e timer
-- Notificações push com ações "Atender" e "Rejeitar" (deep links)
-- Auto-atendimento via parâmetro auto_answer=1 na URL
-- Limpeza automática de notificação ao atender ou rejeitar
-- Endpoint /health para watchdog do Supervisor
-- Dockerfile simplificado: apenas python3, pip e flask
+## 1.0.6
+- Voice: addon now auto-creates HA scripts at startup for every discovered device (call) and for answer/reject/hangup
+- Scripts have aliases in both Portuguese and English — works with local Assist and Home Assistant Cloud AI in any language
+- Scripts are refreshed every 5 minutes alongside device discovery
+- Simplified setup: only `rest_command` block needed in configuration.yaml (no more intent_script or custom sentences)
 
-## 1.3.10
-- Debug: log de diagnóstico visível na tela de chamada (cada etapa WebRTC/ICE) para identificar onde o áudio falha
-- UX: aba Dispositivos agora mostra apenas botão "📞 Chamar XXX" + botão de remover
-- Sem outras mudanças funcionais nesta versão — diagnóstico do áudio mudo
-
-## 1.3.9
-- Correção crítica de áudio bidirecional: callee agora faz `setRemoteDescription(offer)` ANTES de `getUserMedia`+`addTrack`+`createAnswer` — ordem correta para SDP negociation
-- Botão de mudo ao lado de Encerrar (aparece após conectar); alterna microfone local sem encerrar chamada
-- Ao encerrar chamada: aguarda 2s e redireciona para tela principal (`BASE + '/'`) em vez de `history.back()`
-- Notificação "Atender" usa `auto_answer=1`: abre a tela de chamada e atende automaticamente
-- Notificação "Rejeitar" usa `action=reject`: rejeita a chamada server-side e exibe confirmação
-- Após atender ou rejeitar: notificação limpa nos dois dispositivos (caller e callee)
-- `ontrack` do caller agora usa `e.track` diretamente (igual ao callee) para garantir áudio remoto
-- `onConnected()` protegido contra dupla execução com guard `if (connected) return`
-
-## 1.3.8
-- UX: removido seletor "Chamando de:" da aba Chamadas
-- UX: cada card de dispositivo tem um botão com o apelido do dispositivo a ser chamado ("📞 Apelido")
-- UX: adicionado "Meu dispositivo" na aba Configurações (salvo em localStorage); esse dispositivo é o remetente de todas as chamadas
-- Correção áudio: `ontrack` agora usa `e.track` diretamente (mais confiável que `e.streams[0]`) e chama `audio.play()` explicitamente para evitar bloqueio de autoplay em mobile
-
-## 1.3.7
-- Correção UX: painel de chamadas redesenhado — cada card agora representa o DESTINO (quem vai receber a chamada)
-- Adicionado seletor "📲 Chamando de:" para escolher explicitamente seu próprio dispositivo antes de ligar
-- Seleção do dispositivo salva em localStorage para persistir entre sessões
-- Elimina confusão anterior onde o botão de ligar no card de um dispositivo iniciava chamada DELE para outro
-
-## 1.3.6
-- Correção: sem áudio após conexão — ICE não-trickle enviava SDP incompleto (timeout 5s antes do STUN responder)
-- Implementado trickle ICE real: SDP enviado imediatamente após `setLocalDescription`; candidatos ICE trocados via endpoints `/api/call/{id}/ice/{role}` com polling a cada 500ms
-- Múltiplos servidores STUN para maior cobertura de candidatos
-- `onConnected()` agora disparado pelo evento `iceconnectionstatechange → connected` (não antes de ICE estar estabelecido)
-- Handler `ontrack` mais robusto com `MediaStream.addTrack`
-
-## 1.3.5
-- Correção: go2rtc não suporta publicação WebRTC via HTTP POST (`?dst=`) — retornava 404 ao atender
-- Nova arquitetura: WebRTC P2P direto entre browsers (sem go2rtc para roteamento de áudio)
-- Flask agora funciona como servidor de sinalização SDP (endpoints `/api/call/{id}/sdp/offer` e `/sdp/answer`)
-- Chamador cria oferta SDP imediatamente ao abrir a página de chamada; chamado busca a oferta ao atender
-- Ambos aguardam ICE gathering completo antes de trocar SDPs (sem trickle ICE)
-
-## 1.3.4
-- Correção: SyntaxError no f-string da página de chamada (triple-quote dentro de f-string não suportado no Python 3.11); extraído para variável antes do f-string
-
-## 1.3.3
-- Correção: "failed to fetch" no atendimento WebRTC — SDP offer agora proxiado pelo Flask (`/api/webrtc/offer`) para evitar CORS/bloqueio de porta
-- Áudio bidirecional: duas RTCPeerConnections por chamada (publisher e subscriber) com streams direcionais `_caller`/`_callee`
-- Página de chamada com papéis (caller/callee): chamador vê "Ligando..." e aguarda atendimento via polling; chamado vê botões Atender/Rejeitar
-- Sons de toque: padrão brasileiro (dois bipes) para chamada recebida; tom de discagem para chamador
-- Vibração haptic ao receber chamada
-- Chamador redirecionado automaticamente para página de chamada ao iniciar (`/call/{id}?role=caller`)
-- Notificação push incluiu `?role=callee` na URL de atendimento
-
-## 1.3.2
-- Correção: criação de stream go2rtc com `echo:` falhava com 400 porque `requests` codificava o `:` como `%3A`; URL agora construída manualmente
-- Correção: atender chamada já em estado `active` (duplo toque na notificação) retornava 404; endpoint agora retorna 200 com o estado atual
-- Página de atendimento trata resposta `active` sem lançar erro
-
-## 1.3.1
-- Correção: adicionado `hassio_api: true` e `hassio_role: manager` para permitir chamadas à Supervisor API
-- Sem essas permissões o botão de atualização manual e o `auto_update` não conseguiam acionar o Supervisor
-- Log de erro detalhado no endpoint `/api/addon/update`
-
-## 1.3.0
-- `panel_admin: false`: painel visível para todos os usuários (não só admins)
-- Página de atendimento WebRTC (`/call/<call_id>`) com UI de chamada recebida
-- Notificação push agora inclui URL de destino: tocar em "Atender" abre a página de chamada direto
-- `clickAction` na notificação abre a página de atendimento ao tocar na notificação
-- Notificação persistente e sticky para não sumir antes de atender
-- `ingress_url` obtido da Supervisor API para montar o link correto de atendimento
-
-## 1.2.4
-- Correção: path do ingress injetado server-side via header `X-Ingress-Path`
-- Corrige acesso via Nabu Casa e HA frontend (BASE calculado no servidor, não no browser)
-
-## 1.2.3
-- Botão de atualização manual na aba Configurações
-- Verificação automática de versão ao carregar o painel
-- Changelog adicionado ao repositório (esta tela)
-
-## 1.2.2
-- Correção: URLs relativas no painel para funcionar via Nabu Casa (remote UI)
-- Status do go2rtc verificado server-side via `/health` (sem CORS)
-- Link de health dinâmico construído após carregamento
-
-## 1.2.1
-- `auto_update: true` habilitado no manifesto do add-on
-
-## 1.2.0
-- Aba **Dispositivos**: descoberta automática de mobile_app e Voice PE do HA
-- Cadastro de dispositivos via UI (sem edição de YAML)
-- Campo de **apelido** e **sala** para cada dispositivo
-- Dispositivos salvos em `/data/intercom_devices.json`
-- Ícone do menu lateral alterado para `mdi:phone-in-talk`
-
-## 1.1.1
-- Correção: SyntaxError em f-string com backslash (Python 3.11)
-
-## 1.1.0
-- **Watchdog** duplo: HA Supervisor monitora `/health`; supervisor interno reinicia após 3 falhas consecutivas
-- Endpoint `GET /health` retorna uptime, chamadas ativas e status do go2rtc
-- **Painel lateral** completo com 3 abas: Chamadas, Dispositivos, Configurações
-- Grid de dispositivos com botões de chamada por dispositivo
-- Lista de chamadas ativas com duração, estado e botão de encerrar
-- Cards de dispositivo destacados em amarelo (chamando) ou verde (em chamada)
-- Polling automático a cada 3s
+## 1.0.5
+- Voice assistant integration: new endpoints `/api/voice/call`, `/api/voice/answer`, `/api/voice/reject`, `/api/voice/hangup`
+- New addon option `default_caller`: device id used as the caller when a call is started via voice command
+- Fuzzy device name matching for voice calls (e.g. "Luiz" matches device `cel_luiz`)
+- Added `voice/` directory with ready-to-use HA Assist custom sentences (Portuguese) and configuration snippet
 
 ## 1.0.4
-- Substitui serviços s6-overlay por `supervisor.py` como PID 1
-- Resolve crash `s6-overlay-suexec: fatal: can only run as pid 1`
-- Gerenciamento de processos go2rtc e Flask via Python com restart automático
+- Incoming call notification now uses full-screen intent on Android: shows full-screen on locked device (like a phone call) and as a floating heads-up banner when the device is in use
 
 ## 1.0.3
-- Tentativa de serviços s6-overlay v3 (go2rtc, intercom-api, init-intercom)
+- Fix: notification not dismissed after reject — Reject button now calls a server-side GET endpoint (`/api/call/reject-notify/<id>`) that rejects the call and clears the notification without requiring JS execution in a WebView
 
 ## 1.0.2
-- Correção: `pip3 install` com `--break-system-packages` para Alpine 3.19 (PEP 668)
+- Fix: `external_url` field in HA config can be null — use `or ''` instead of default to avoid crash on startup
+- Fix: removed `/config/config_entries` call that returned 404 via Supervisor proxy; device auto-detection falls back to manual selection in the UI
 
 ## 1.0.1
-- Correção: `COPY rootfs/ /` removido (diretório vazio não é rastreado pelo git)
-- Correção: entrada `ssl:r` inválida removida do `map` no config.yaml
-- Valor padrão adicionado ao `ARG BUILD_FROM` no Dockerfile
+- Fix: notification URL now uses HA's `external_url` combined with the addon ingress path, so the call screen opens correctly when the callee's app is closed or on a different network (mobile data, external WiFi)
 
 ## 1.0.0
-- Versão inicial
-- Add-on instala e configura go2rtc (WebRTC, RTSP, API)
-- API de sinalização Flask (porta 8099) com endpoints de chamada
-- Suporte a Android (notificações push com Atender/Rejeitar) e Voice PE (TTS + RTSP)
-- Componente customizado `ha_intercom` com entidades `button` e serviços HA
-- Config flow para integração via UI
-- Eventos HA: `ha_intercom_call_initiated`, `ha_intercom_call_answered`, `ha_intercom_call_rejected`, `ha_intercom_call_ended`
-- Watchdog automático para timeout e duração máxima de chamadas
-- Multi-arch: aarch64 (RPi 4) e amd64
+- Initial release
+- Bidirectional WebRTC audio between HA mobile_app devices (P2P, no relay server)
+- Auto-discovers all registered mobile_app devices on startup — no manual configuration needed
+- Detects the current user's device automatically via HA ingress headers
+- Sidebar panel with device list and one-tap Call button per device; hides own device to prevent self-calls
+- Push notification to callee with Answer and Reject action buttons
+- Answer opens the call screen and connects automatically; Reject dismisses immediately
+- Notification cleared on both devices after answer or reject
+- Active calls section in the panel with hang-up button
+- Mute button on the call screen
+- Call screen closes automatically 2 seconds after the call ends
