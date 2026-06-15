@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Get app information
         id: info
@@ -37,7 +39,10 @@ jobs:
         id: normalize
         run: |
           image=${{ steps.info.outputs.image }}
-          echo "image_name=${image##*/}" >> "$GITHUB_OUTPUT"
+          # Strip {arch}- prefix — prepare-multi-arch-matrix prepends the arch itself
+          image_name="${image##*/}"
+          image_name="${image_name/\{arch\}-/}"
+          echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
           echo "registry_prefix=${image%/*}" >> "$GITHUB_OUTPUT"
           version=${{ steps.info.outputs.version }}
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -72,6 +77,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           persist-credentials: false
 
