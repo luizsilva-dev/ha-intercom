@@ -94,8 +94,8 @@ def send_notification(device_id, title, message, call_id, ingress_url):
         'data': {
             'tag': f'intercom_{call_id}',
             'actions': [
-                {'action': 'URI', 'title': 'Atender', 'uri': answer_url},
-                {'action': 'URI', 'title': 'Rejeitar', 'uri': reject_url}
+                {'action': 'URI', 'title': 'Answer', 'uri': answer_url},
+                {'action': 'URI', 'title': 'Reject', 'uri': reject_url}
             ]
         }
     }
@@ -108,7 +108,7 @@ def clear_notification(device_id, call_id):
     })
 
 PANEL_HTML = r"""<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -138,22 +138,22 @@ section h2 { color: #90e0ef; font-size: 1.1rem; margin-bottom: 12px; border-bott
 <body>
 <div class="container">
   <h1>Intercom</h1>
-  <p class="subtitle">Comunicacao via WebRTC</p>
+  <p class="subtitle">WebRTC voice intercom</p>
 
   <div class="my-device">
-    <label>Estou usando:</label>
-    <span id="myDeviceDisplay">Detectando...</span>
+    <label>I am using:</label>
+    <span id="myDeviceDisplay">Detecting...</span>
     <select id="myDeviceSelect" style="display:none" onchange="saveMyDevice(this.value)"></select>
   </div>
 
   <section>
-    <h2>Ligar para</h2>
-    <div id="deviceList"><p class="empty">Carregando dispositivos...</p></div>
+    <h2>Call</h2>
+    <div id="deviceList"><p class="empty">Loading devices...</p></div>
   </section>
 
   <section>
-    <h2>Chamadas ativas</h2>
-    <div id="callList"><p class="empty">Nenhuma chamada ativa</p></div>
+    <h2>Active calls</h2>
+    <div id="callList"><p class="empty">No active calls</p></div>
   </section>
 </div>
 
@@ -190,7 +190,7 @@ async function fetchMyDevice() {
 function showDeviceSelect() {
   const sel = document.getElementById('myDeviceSelect');
   const disp = document.getElementById('myDeviceDisplay');
-  sel.innerHTML = '<option value="">-- Selecionar --</option>' +
+  sel.innerHTML = '<option value="">-- Select --</option>' +
     allDevices.map(d => `<option value="${d.id}" ${d.id===myDeviceId?'selected':''}>${d.name}</option>`).join('');
   disp.style.display = 'none';
   sel.style.display = '';
@@ -208,15 +208,15 @@ function saveMyDevice(id) {
 function renderDevices() {
   const el = document.getElementById('deviceList');
   const list = allDevices.filter(d => d.id !== myDeviceId);
-  if (!list.length) { el.innerHTML = '<p class="empty">Nenhum dispositivo encontrado</p>'; return; }
+  if (!list.length) { el.innerHTML = '<p class="empty">No devices found</p>'; return; }
   el.innerHTML = list.map(d =>
-    `<button class="device-btn" onclick="call('${d.id}')">Chamar ${d.name}</button>`
+    `<button class="device-btn" onclick="call('${d.id}')">Call ${d.name}</button>`
   ).join('');
 }
 
 async function call(calleeId) {
-  if (!myDeviceId) { alert('Selecione seu dispositivo em "Estou usando"'); return; }
-  if (calleeId === myDeviceId) { alert('Nao pode ligar para si mesmo'); return; }
+  if (!myDeviceId) { alert('Select your device under "I am using"'); return; }
+  if (calleeId === myDeviceId) { alert('Cannot call yourself'); return; }
   try {
     const r = await fetch(BASE + '/api/call/initiate', {
       method: 'POST',
@@ -225,7 +225,7 @@ async function call(calleeId) {
     });
     const j = await r.json();
     window.location.href = BASE + '/call/' + j.call_id + '?role=caller';
-  } catch(e) { alert('Erro ao iniciar chamada: ' + e); }
+  } catch(e) { alert('Error starting call: ' + e); }
 }
 
 async function hangup(callId) {
@@ -245,14 +245,14 @@ async function fetchCalls() {
     const j = await r.json();
     const active = (j.calls || []).filter(c => ['ringing','active'].includes(c.state));
     const el = document.getElementById('callList');
-    if (!active.length) { el.innerHTML = '<p class="empty">Nenhuma chamada ativa</p>'; return; }
+    if (!active.length) { el.innerHTML = '<p class="empty">No active calls</p>'; return; }
     el.innerHTML = active.map(c => `
       <div class="call-row">
         <div class="call-info">
-          <div class="names">${c.caller_name} -&gt; ${c.callee_name}</div>
-          <div class="state">${c.state === 'active' ? 'Ativa - ' + timeSince(c.started_at) : 'Chamando...'}</div>
+          <div class="names">${c.caller_name} &rarr; ${c.callee_name}</div>
+          <div class="state">${c.state === 'active' ? 'Active - ' + timeSince(c.started_at) : 'Ringing...'}</div>
         </div>
-        <button class="hangup-btn" onclick="hangup('${c.id}')">Desligar</button>
+        <button class="hangup-btn" onclick="hangup('${c.id}')">Hang up</button>
       </div>
     `).join('');
   } catch(e) {}
@@ -272,11 +272,11 @@ init();
 """
 
 CALL_HTML = r"""<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chamada</title>
+<title>Call</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -298,7 +298,7 @@ body { background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', sans-serif;
 <div class="call-card">
   <div class="avatar" id="avatar">&#128100;</div>
   <div class="name" id="otherName">...</div>
-  <div class="status" id="status">Conectando...</div>
+  <div class="status" id="status">Connecting...</div>
   <div class="timer" id="timer"></div>
   <div class="controls">
     <button class="btn btn-mute" id="muteBtn" onclick="toggleMute()" disabled>&#127897;</button>
@@ -360,7 +360,7 @@ function startTimer() {
 
 function onConnected() {
   dbg('Connected!');
-  setStatus('Em chamada');
+  setStatus('In call');
   document.getElementById('muteBtn').disabled = false;
   startTimer();
   if (remoteAudio) remoteAudio.play().catch(e => dbg('play err: ' + e));
@@ -372,7 +372,7 @@ function endUI(msg) {
   clearInterval(timerInterval);
   if (offerPollInterval) clearInterval(offerPollInterval);
   if (answerPollInterval) clearInterval(answerPollInterval);
-  setStatus(msg || 'Chamada encerrada');
+  setStatus(msg || 'Call ended');
   document.getElementById('hangupBtn').disabled = true;
   document.getElementById('muteBtn').disabled = true;
   document.getElementById('timer').textContent = '';
@@ -383,7 +383,7 @@ function endUI(msg) {
 
 async function hangup() {
   await fetch(BASE + '/api/call/hangup/' + CALL_ID, {method: 'POST'}).catch(()=>{});
-  endUI('Chamada encerrada');
+  endUI('Call ended');
 }
 
 function toggleMute() {
@@ -430,10 +430,10 @@ async function loadCallInfo() {
 // Caller flow
 async function startCaller() {
   dbg('Role: caller');
-  setStatus('Obtendo audio...');
+  setStatus('Accessing microphone...');
   try {
     localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
-  } catch(e) { setStatus('Erro: sem acesso ao microfone'); dbg('getUserMedia err: ' + e); return; }
+  } catch(e) { setStatus('Error: microphone access denied'); dbg('getUserMedia err: ' + e); return; }
 
   pc = new RTCPeerConnection({iceServers: [
     {urls: 'stun:stun.l.google.com:19302'},
@@ -453,11 +453,11 @@ async function startCaller() {
   pc.oniceconnectionstatechange = () => {
     dbg('ICE: ' + pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') onConnected();
-    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && !ended) endUI('Chamada encerrada');
+    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && !ended) endUI('Call ended');
   };
 
   dbg('Creating offer...');
-  setStatus('Criando oferta...');
+  setStatus('Creating offer...');
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   dbg('Waiting for ICE gathering...');
@@ -470,7 +470,7 @@ async function startCaller() {
     body: pc.localDescription.sdp
   });
 
-  setStatus('Chamando...');
+  setStatus('Ringing...');
   const stopRing = ringTone();
 
   // Poll for answer
@@ -479,8 +479,8 @@ async function startCaller() {
     if (ended) { clearInterval(answerPollInterval); return; }
     try {
       const st = await pollCallState();
-      if (st && st.state === 'rejected') { clearInterval(answerPollInterval); stopRing(); endUI('Chamada rejeitada'); return; }
-      if (st && st.state === 'ended') { clearInterval(answerPollInterval); stopRing(); endUI('Chamada encerrada'); return; }
+      if (st && st.state === 'rejected') { clearInterval(answerPollInterval); stopRing(); endUI('Call rejected'); return; }
+      if (st && st.state === 'ended') { clearInterval(answerPollInterval); stopRing(); endUI('Call ended'); return; }
 
       const r = await fetch(BASE + '/api/sdp/' + CALL_ID + '/answer');
       if (r.status === 200) {
@@ -492,7 +492,7 @@ async function startCaller() {
           dbg('Got answer SDP');
           await pc.setRemoteDescription({type: 'answer', sdp: answerSdp});
           dbg('Remote description set');
-          setStatus('Conectando audio...');
+          setStatus('Connecting audio...');
         }
       }
     } catch(e) { dbg('poll err: ' + e); }
@@ -506,7 +506,7 @@ async function startCallee() {
   // Post answer to signal we're here
   await fetch(BASE + '/api/call/answer/' + CALL_ID, {method: 'POST'}).catch(()=>{});
 
-  setStatus('Aguardando oferta...');
+  setStatus('Waiting for offer...');
   dbg('Polling for offer...');
 
   let offerSdp = null;
@@ -524,7 +524,7 @@ async function startCallee() {
       tries++;
       if (tries > 40) { clearInterval(offerPollInterval); reject(new Error('timeout')); }
     }, 1000);
-  }).catch(() => { endUI('Timeout aguardando oferta'); });
+  }).catch(() => { endUI('Timeout waiting for offer'); });
 
   if (!offerSdp || ended) return;
   dbg('Got offer SDP');
@@ -545,16 +545,16 @@ async function startCallee() {
   pc.oniceconnectionstatechange = () => {
     dbg('ICE: ' + pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') onConnected();
-    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && !ended) endUI('Chamada encerrada');
+    if (['disconnected','failed','closed'].includes(pc.iceConnectionState) && !ended) endUI('Call ended');
   };
 
   await pc.setRemoteDescription({type: 'offer', sdp: offerSdp});
   dbg('Set remote description');
 
-  setStatus('Obtendo audio...');
+  setStatus('Accessing microphone...');
   try {
     localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
-  } catch(e) { setStatus('Erro: sem acesso ao microfone'); dbg('getUserMedia err: ' + e); return; }
+  } catch(e) { setStatus('Error: microphone access denied'); dbg('getUserMedia err: ' + e); return; }
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
   const answer = await pc.createAnswer();
@@ -569,21 +569,21 @@ async function startCallee() {
     body: pc.localDescription.sdp
   });
 
-  setStatus('Conectando audio...');
+  setStatus('Connecting audio...');
   dbg('Answer posted, waiting for connection...');
 }
 
 async function rejectCall() {
   dbg('Rejecting call');
   await fetch(BASE + '/api/call/reject/' + CALL_ID, {method: 'POST'}).catch(()=>{});
-  endUI('Chamada rejeitada');
+  endUI('Call rejected');
 }
 
 // Monitor for remote hangup
 setInterval(async () => {
   if (ended) return;
   const st = await pollCallState();
-  if (st && st.state === 'ended') endUI('Chamada encerrada');
+  if (st && st.state === 'ended') endUI('Call ended');
 }, 3000);
 
 async function init() {
@@ -600,7 +600,7 @@ async function init() {
     if (AUTO_ANSWER) {
       await startCallee();
     } else {
-      setStatus('Chamada recebida');
+      setStatus('Incoming call');
       document.getElementById('hangupBtn').textContent = '✅';
       document.getElementById('hangupBtn').onclick = () => startCallee();
     }
@@ -705,8 +705,8 @@ def api_call_initiate():
     caller_name = get_device_name(caller)
     send_notification(
         callee,
-        f'Chamada de {caller_name}',
-        'Toque para atender',
+        f'Intercom call from {caller_name}',
+        'Tap to answer',
         call_id,
         ingress_url
     )

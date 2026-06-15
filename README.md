@@ -1,159 +1,82 @@
-# HA Intercom
+# Intercom — Home Assistant Add-on
 
-Add-on para Home Assistant que implementa um sistema de intercom bidirecional entre dispositivos usando **go2rtc** e **WebRTC**.
+A Home Assistant add-on that enables bidirectional voice calls between devices using **WebRTC** (peer-to-peer, no relay server required).
 
-## Funcionalidades
+## Features
 
-- Chamadas bidirecionais de áudio entre app Android (HA Companion) e dispositivos Voice PE
-- Sinalização via API REST própria
-- Integração nativa com notificações do app Android (botões Atender/Rejeitar)
-- Anúncio de chamada via TTS no Voice PE
-- Entidades `button` no HA para iniciar chamadas com um toque
-- Eventos HA para automações personalizadas
+- Bidirectional audio between HA mobile app devices (Android / iOS)
+- Auto-discovers all registered `mobile_app` devices on startup — no manual device configuration
+- Automatically detects which device the current user is on
+- Sidebar panel with a **Call** button for each device
+- Push notification to the callee with **Answer** and **Reject** buttons
+- Answering opens the call screen and connects immediately; rejecting dismisses the notification
+- Notification cleared on both devices after answer or reject
+- Active calls list in the panel with a hang-up button
+- Mute button on the call screen
+- Call screen auto-closes 2 seconds after the call ends
 
-## Arquitetura
+## Requirements
+
+- Home Assistant OS or Supervised
+- HA Companion App installed on each device (Android or iOS)
+
+## Installation
+
+1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**
+2. Click the three-dot menu → **Repositories**
+3. Add: `https://github.com/luizsilva-dev/ha-intercom`
+4. Find **Intercom** in the store and click **Install**
+5. Start the add-on
+6. Go to **Settings → Dashboards** and enable the **Intercom** sidebar panel (if not already visible)
+
+## Configuration
+
+The add-on has no required configuration. All devices are discovered automatically at startup.
+
+Optional settings (available in the add-on configuration tab):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `call_timeout` | `30` | Seconds before an unanswered call times out |
+| `max_call_duration` | `300` | Maximum call duration in seconds |
+| `log_level` | `info` | Log verbosity: `debug`, `info`, `warning`, `error` |
+
+## How it works
+
+1. Open the **Intercom** panel from the HA sidebar
+2. The panel shows all discovered devices. Your own device is automatically selected under **I am using** (or you can pick it manually from the dropdown)
+3. Tap **Call [device name]** to start a call
+4. The callee receives a push notification with **Answer** and **Reject** buttons
+5. When both sides answer, a peer-to-peer WebRTC audio connection is established directly between the devices
+
+## REST API
+
+The add-on exposes a REST API on port 8099 (also accessible via HA ingress):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET | `/api/devices` | List discovered devices |
+| GET | `/api/my_device` | Current user's device (from HA headers) |
+| POST | `/api/call/initiate` | Start a call `{"caller": "id", "callee": "id"}` |
+| POST | `/api/call/answer/<id>` | Answer a call |
+| POST | `/api/call/reject/<id>` | Reject a call |
+| POST | `/api/call/hangup/<id>` | Hang up a call |
+| GET | `/api/call/status` | List active calls |
+| GET | `/api/call/<id>` | Get a single call's state |
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Raspberry Pi 4                        │
-│                                                         │
-│  ┌──────────────┐     ┌──────────────────────────────┐  │
-│  │   go2rtc     │     │   Intercom Signaling API     │  │
-│  │  :1984 (API) │     │        Flask :8099           │  │
-│  │  :8554 (RTSP)│◄────│  - Gerencia chamadas         │  │
-│  │  :8555 (WebRTC)    │  - Cria streams go2rtc       │  │
-│  └──────────────┘     │  - Notifica dispositivos     │  │
-│                       └──────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-         │                          │
-         ▼                          ▼
-  WebRTC stream              HA Events / REST API
-         │
-   ┌─────┴──────┐
-   │            │
-Android App   Voice PE
-(WebRTC)     (RTSP/TTS)
+Home Assistant
+  └── Intercom add-on (Flask :8099)
+        ├── Discovers mobile_app devices via HA Supervisor API
+        ├── Stores SDP offer/answer for WebRTC signaling
+        └── Sends push notifications via HA notify services
+
+Browser A (caller)          Browser B (callee)
+  └── WebRTC offer ──────────────────────► Flask (stored)
+                                           Flask (retrieved) ──► callee fetches offer
+  ◄── WebRTC answer ◄─────────────────── callee posts answer
+  └────────────── P2P audio (WebRTC) ──────────────────────────┘
 ```
-
-## Instalação
-
-### 1. Add-on
-
-1. No HA, vá em **Configurações → Add-ons → Loja de add-ons**
-2. Clique nos três pontos → **Repositórios**
-3. Adicione: `https://github.com/luizsilva-dev/ha-intercom`
-4. Instale **HA Intercom**
-5. Configure os dispositivos (veja abaixo)
-6. Inicie o add-on
-
-### 2. Componente customizado
-
-Copie a pasta `custom_components/ha_intercom/` para o diretório `custom_components/` da sua instalação HA, depois reinicie o HA.
-
-Alternativamente, use o [HACS](https://hacs.xyz/):
-1. HACS → Integrações → Menu → Repositórios customizados
-2. URL: `https://github.com/luizsilva-dev/ha-intercom` | Categoria: Integration
-
-### 3. Integração
-
-Em **Configurações → Dispositivos e Serviços → Adicionar Integração**, procure "HA Intercom" e siga o assistente de configuração.
-
-## Configuração do Add-on
-
-```yaml
-devices:
-  - name: android_sala       # identificador único (sem espaços)
-    type: android
-    room: Sala
-    mobile_app_id: pixel_8   # ID do dispositivo no HA (mobile_app_<id>)
-
-  - name: android_quarto
-    type: android
-    room: Quarto
-    mobile_app_id: samsung_s23
-
-  - name: voice_pe_cozinha
-    type: voice_pe
-    room: Cozinha
-    ha_device_id: media_player.voice_pe_cozinha  # entity_id do Voice PE
-
-call_timeout: 30        # segundos até timeout se não atender
-max_call_duration: 300  # duração máxima da chamada em segundos
-log_level: info
-```
-
-## Como funciona uma chamada
-
-### Android → Android
-
-1. Usuário pressiona o botão "Ligar para [dispositivo]" no painel HA ou no app
-2. A API cria um stream go2rtc com áudio echo bidirecional (`echo:`)
-3. O app Android do destinatário recebe notificação push com botões **Atender** / **Rejeitar**
-4. Ao atender, ambos os apps abrem a URL WebRTC do go2rtc e o áudio flui bidirecionalmente
-
-### Android → Voice PE
-
-1. Usuário inicia chamada para um Voice PE
-2. O Voice PE anuncia via TTS: *"Chamada de intercom de [nome]. Diga OK para atender."*
-3. O stream de áudio do Android é enviado ao Voice PE via RTSP
-4. O Voice PE retorna o áudio ambiente via microfone (se configurado)
-
-## Eventos HA disponíveis
-
-| Evento | Dados |
-|--------|-------|
-| `ha_intercom_call_initiated` | `call_id`, `caller`, `callee`, URLs do stream |
-| `ha_intercom_call_answered` | `call_id`, URLs do stream |
-| `ha_intercom_call_rejected` | `call_id` |
-| `ha_intercom_call_ended` | `call_id` |
-
-## Serviços HA
-
-| Serviço | Parâmetros |
-|---------|-----------|
-| `ha_intercom.initiate_call` | `caller`, `callee` |
-| `ha_intercom.hangup_call` | `call_id` |
-
-## API REST (porta 8099)
-
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| GET | `/api/devices` | Lista dispositivos configurados |
-| POST | `/api/call/initiate` | Inicia chamada `{caller, callee}` |
-| POST | `/api/call/answer/<id>` | Atende chamada |
-| POST | `/api/call/reject/<id>` | Rejeita chamada |
-| POST | `/api/call/hangup/<id>` | Encerra chamada |
-| GET | `/api/call/status` | Lista chamadas ativas |
-| GET | `/api/call/<id>` | Status de uma chamada |
-
-## Automação de exemplo
-
-```yaml
-automation:
-  - alias: "Intercom - Ligar para sala ao pressionar botão físico"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.botao_porta
-        to: "on"
-    action:
-      - service: ha_intercom.initiate_call
-        data:
-          caller: voice_pe_cozinha
-          callee: android_sala
-```
-
-## Portas utilizadas
-
-| Porta | Serviço |
-|-------|---------|
-| 1984 | go2rtc API & Web UI |
-| 8554 | RTSP streams |
-| 8555 | WebRTC signaling |
-| 8099 | Intercom API (ingress) |
-
-## Requisitos
-
-- Home Assistant OS ou Supervised
-- Raspberry Pi 4 (aarch64) ou x86_64
-- App Android HA Companion instalado nos dispositivos Android
-- Voice PE configurado como `media_player` no HA
