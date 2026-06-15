@@ -431,7 +431,10 @@ window.onerror = (msg, src, line) => {{ dbg('JS ERROR: ' + msg + ' L' + line); }
 // ---- Ring tone ----
 let audioCtx = null;
 function getAC() {{
-  if (!audioCtx) {{ const A = window.AudioContext||window.webkitAudioContext; if(A) audioCtx=new A(); }}
+  if (!audioCtx) {{
+    const A = window.AudioContext||window.webkitAudioContext;
+    if (A) try {{ audioCtx = new A(); }} catch(e) {{ dbg('AudioCtx err: '+e); }}
+  }}
   return audioCtx;
 }}
 function playTone(f,d,t,v) {{
@@ -704,15 +707,17 @@ function stopPoll() {{ if(pollInterval){{clearInterval(pollInterval);pollInterva
 
 // ---- Init ----
 dbg('init BASE=' + BASE + ' ROLE=' + ROLE + ' AUTO=' + AUTO_ANSWER);
-if (ROLE === 'caller') {{
-  startRing('outgoing');
-  startPoll();
-  callerSetup();
-}} else if (AUTO_ANSWER) {{
-  answerCall();
-}} else {{
-  startRing('incoming');
-}}
+try {{
+  if (ROLE === 'caller') {{
+    try {{ startRing('outgoing'); }} catch(e) {{ dbg('ring err: '+e); }}
+    startPoll();
+    callerSetup();
+  }} else if (AUTO_ANSWER) {{
+    answerCall();
+  }} else {{
+    try {{ startRing('incoming'); }} catch(e) {{ dbg('ring err: '+e); }}
+  }}
+}} catch(e) {{ dbg('INIT ERR: '+e); }}
 </script>
 </body>
 </html>"""
