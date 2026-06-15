@@ -41,7 +41,7 @@ jobs:
           image=${{ steps.info.outputs.image }}
           # Strip {arch}- prefix — prepare-multi-arch-matrix prepends the arch itself
           image_name="${image##*/}"
-          image_name="${image_name/\{arch\}-/}"
+          image_name=$(echo "$image_name" | sed 's/{arch}-//')
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
           echo "registry_prefix=${image%/*}" >> "$GITHUB_OUTPUT"
           version=${{ steps.info.outputs.version }}
