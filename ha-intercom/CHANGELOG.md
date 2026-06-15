@@ -1,5 +1,9 @@
 # Changelog — Intercom
 
+## 1.0.2
+- Fix: `external_url` field in HA config can be null — use `or ''` instead of default to avoid crash on startup
+- Fix: removed `/config/config_entries` call that returned 404 via Supervisor proxy; device auto-detection falls back to manual selection in the UI
+
 ## 1.0.1
 - Fix: notification URL now uses HA's `external_url` combined with the addon ingress path, so the call screen opens correctly when the callee's app is closed or on a different network (mobile data, external WiFi)
 

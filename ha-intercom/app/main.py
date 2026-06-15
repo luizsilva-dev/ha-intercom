@@ -60,35 +60,18 @@ def refresh_devices():
     devices = new_devices
     log.info(f'Found {len(devices)} mobile_app devices: {[d["id"] for d in devices]}')
 
-    # Build user->device map from config entries
-    # mobile_app config entry data has user_id and device_name fields
-    entries = ha_get('/config/config_entries?domain=mobile_app')
-    new_map = {}
-    if entries:
-        for entry in entries:
-            data = entry.get('data', {})
-            user_id = data.get('user_id')
-            # device_name in config entry typically matches the notify service id
-            raw_name = data.get('device_name', '')
-            norm = raw_name.lower().replace(' ', '_').replace('-', '_')
-            if user_id and norm:
-                for d in new_devices:
-                    if d['id'] == norm or norm.startswith(d['id']) or d['id'].startswith(norm):
-                        new_map[user_id] = d['id']
-                        break
-    user_device_map = new_map
-    log.info(f'User->device map: {user_device_map}')
+    user_device_map = {}  # auto-detection via config_entries not supported; user selects manually
 
 def refresh_base_url():
     global _base_url
     external = ''
     config = ha_get('/config')
     if config:
-        external = config.get('external_url', '').rstrip('/')
+        external = (config.get('external_url') or '').rstrip('/')
     ingress = ''
     info = ha_get('/../../addons/self/info')
     if info:
-        ingress = info.get('data', {}).get('ingress_url', '').rstrip('/')
+        ingress = (info.get('data', {}).get('ingress_url') or '').rstrip('/')
     if external and ingress:
         _base_url = external + ingress
     elif ingress:
