@@ -9,6 +9,17 @@ SUPERVISOR_TOKEN = os.environ.get('SUPERVISOR_TOKEN', '')
 HA_URL = 'http://supervisor/core'
 START_TIME = time.time()
 
+def _read_options():
+    try:
+        import json
+        with open('/data/options.json') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+OPTIONS = _read_options()
+DEFAULT_CALLER = OPTIONS.get('default_caller', '')
+
 # In-memory stores
 devices = []          # [{id, name, service}]
 user_device_map = {}  # user_id -> device_id
@@ -742,6 +753,91 @@ def api_call_hangup(call_id):
         return jsonify({'error': 'not found'}), 404
     calls[call_id]['state'] = 'ended'
     return jsonify({'ok': True})
+
+
+def _find_device_by_name(name):
+    """Fuzzy match a device by name fragment (case-insensitive)."""
+    name_lower = name.lower().replace(' ', '_')
+    for d in devices:
+        if name_lower in d['id'].lower() or name_lower in d['name'].lower():
+            return d
+    for d in devices:
+        if any(part in d['id'].lower() or part in d['name'].lower()
+               for part in name_lower.split('_') if len(part) > 2):
+            return d
+    return None
+
+def _active_ringing_call():
+    for c in calls.values():
+        if c['state'] == 'ringing':
+            return c
+    return None
+
+def _active_call():
+    for c in calls.values():
+        if c['state'] in ('ringing', 'active'):
+            return c
+    return None
+
+
+@app.route('/api/voice/call', methods=['POST'])
+def api_voice_call():
+    data = request.json or {}
+    callee_name = data.get('callee_name', '').strip()
+    caller_id = data.get('caller_id', DEFAULT_CALLER).strip()
+    if not callee_name:
+        return jsonify({'error': 'callee_name required'}), 400
+    callee = _find_device_by_name(callee_name)
+    if not callee:
+        return jsonify({'error': f'Device not found: {callee_name}'}), 404
+    if not caller_id:
+        others = [d for d in devices if d['id'] != callee['id']]
+        if not others:
+            return jsonify({'error': 'No caller device available'}), 400
+        caller_id = others[0]['id']
+    call_id = str(uuid.uuid4())[:8]
+    calls[call_id] = {
+        'id': call_id, 'caller': caller_id, 'callee': callee['id'],
+        'caller_name': get_device_name(caller_id), 'callee_name': callee['name'],
+        'state': 'ringing', 'created_at': time.time(), 'started_at': None
+    }
+    sdp_store[call_id] = {'offer': None, 'answer': None}
+    send_notification(callee['id'], f'Intercom call from {get_device_name(caller_id)}',
+                      'Tap to answer', call_id, _base_url)
+    log.info(f'Voice call {call_id}: {caller_id} -> {callee["id"]}')
+    return jsonify({'ok': True, 'call_id': call_id})
+
+
+@app.route('/api/voice/answer', methods=['POST'])
+def api_voice_answer():
+    c = _active_ringing_call()
+    if not c:
+        return jsonify({'error': 'No ringing call'}), 404
+    c['state'] = 'active'
+    c['started_at'] = time.time()
+    clear_notification(c['caller'], c['id'])
+    clear_notification(c['callee'], c['id'])
+    return jsonify({'ok': True, 'call_id': c['id']})
+
+
+@app.route('/api/voice/reject', methods=['POST'])
+def api_voice_reject():
+    c = _active_ringing_call()
+    if not c:
+        return jsonify({'error': 'No ringing call'}), 404
+    c['state'] = 'rejected'
+    clear_notification(c['caller'], c['id'])
+    clear_notification(c['callee'], c['id'])
+    return jsonify({'ok': True, 'call_id': c['id']})
+
+
+@app.route('/api/voice/hangup', methods=['POST'])
+def api_voice_hangup():
+    c = _active_call()
+    if not c:
+        return jsonify({'error': 'No active call'}), 404
+    c['state'] = 'ended'
+    return jsonify({'ok': True, 'call_id': c['id']})
 
 
 @app.route('/api/call/status')

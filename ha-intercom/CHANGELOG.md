@@ -1,5 +1,11 @@
 # Changelog — Intercom
 
+## 1.0.5
+- Voice assistant integration: new endpoints `/api/voice/call`, `/api/voice/answer`, `/api/voice/reject`, `/api/voice/hangup`
+- New addon option `default_caller`: device id used as the caller when a call is started via voice command
+- Fuzzy device name matching for voice calls (e.g. "Luiz" matches device `cel_luiz`)
+- Added `voice/` directory with ready-to-use HA Assist custom sentences (Portuguese) and configuration snippet
+
 ## 1.0.4
 - Incoming call notification now uses full-screen intent on Android: shows full-screen on locked device (like a phone call) and as a floating heads-up banner when the device is in use
 

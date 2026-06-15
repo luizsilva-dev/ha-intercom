@@ -49,6 +49,36 @@ Optional settings (available in the add-on configuration tab):
 4. The callee receives a push notification with **Answer** and **Reject** buttons
 5. When both sides answer, a peer-to-peer WebRTC audio connection is established directly between the devices
 
+## Voice Assistant (HA Assist)
+
+The add-on can be controlled by voice via HA Assist. Setup takes three steps:
+
+### 1. Copy the custom sentences
+
+Copy `voice/custom_sentences/pt/` to your HA config directory:
+```
+<ha_config>/custom_sentences/pt/intercom.yaml
+```
+
+### 2. Add to configuration.yaml
+
+Copy the contents of `voice/configuration_snippet.yaml` into your `configuration.yaml`, then restart HA.
+
+### 3. Set the default caller (optional)
+
+In the add-on configuration tab, set **Default Caller** to the device id that voice commands should call from (e.g. `cel_luiz`). If left empty, the first available device is used.
+
+### Voice commands (Portuguese)
+
+| Say | Action |
+|-----|--------|
+| "Ligar para Luiz" | Calls the device matching "Luiz" |
+| "Atender" | Answers the active ringing call |
+| "Recusar" | Rejects the active ringing call |
+| "Desligar" | Hangs up the active call |
+
+The name in "Ligar para [name]" is matched fuzzily — "Luiz" matches a device named `cel_luiz` or `Luiz's Phone`.
+
 ## REST API
 
 The add-on exposes a REST API on port 8099 (also accessible via HA ingress):

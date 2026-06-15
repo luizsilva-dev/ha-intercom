@@ -1,5 +1,5 @@
 name: Intercom
-version: "1.0.4"
+version: "1.0.5"
 slug: ha_intercom
 description: Bidirectional intercom between HA devices via WebRTC
 url: https://github.com/luizsilva-dev/ha-intercom
@@ -28,7 +28,9 @@ options:
   call_timeout: 30
   max_call_duration: 300
   log_level: info
+  default_caller: ""
 schema:
   call_timeout: int
   max_call_duration: int
   log_level: "list(debug|info|warning|error)"
+  default_caller: str

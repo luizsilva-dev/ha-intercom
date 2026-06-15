@@ -1,0 +1,25 @@
+language: "pt"
+intents:
+  IntercomCall:
+    data:
+      - sentences:
+          - "liga(r) [intercom] para {name}"
+          - "chama(r) [intercom] {name}"
+          - "intercom liga(r) para {name}"
+  IntercomAnswer:
+    data:
+      - sentences:
+          - "atende(r) [a chamada] [do intercom]"
+          - "atende(r) intercom"
+  IntercomReject:
+    data:
+      - sentences:
+          - "recusa(r) [a chamada] [do intercom]"
+          - "rejeita(r) [a chamada] [do intercom]"
+          - "recusa(r) intercom"
+  IntercomHangup:
+    data:
+      - sentences:
+          - "desliga(r) [o intercom]"
+          - "encerra(r) [a chamada] [do intercom]"
+          - "intercom desliga(r)"

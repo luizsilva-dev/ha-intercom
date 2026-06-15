@@ -1,0 +1,42 @@
+# Add these blocks to your Home Assistant configuration.yaml
+# Replace http://localhost:8099 with your HA instance IP if needed
+
+rest_command:
+  intercom_call:
+    url: "http://localhost:8099/api/voice/call"
+    method: POST
+    content_type: "application/json"
+    payload: '{"callee_name": "{{ name }}"}'
+  intercom_answer:
+    url: "http://localhost:8099/api/voice/answer"
+    method: POST
+  intercom_reject:
+    url: "http://localhost:8099/api/voice/reject"
+    method: POST
+  intercom_hangup:
+    url: "http://localhost:8099/api/voice/hangup"
+    method: POST
+
+intent_script:
+  IntercomCall:
+    speech:
+      text: "Calling {{ name }}"
+    action:
+      - service: rest_command.intercom_call
+        data:
+          name: "{{ name }}"
+  IntercomAnswer:
+    speech:
+      text: "Answering"
+    action:
+      - service: rest_command.intercom_answer
+  IntercomReject:
+    speech:
+      text: "Call rejected"
+    action:
+      - service: rest_command.intercom_reject
+  IntercomHangup:
+    speech:
+      text: "Hanging up"
+    action:
+      - service: rest_command.intercom_hangup
