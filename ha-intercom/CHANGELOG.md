@@ -1,5 +1,8 @@
 # Changelog — Intercom
 
+## 1.0.1
+- Fix: notification URL now uses HA's `external_url` combined with the addon ingress path, so the call screen opens correctly when the callee's app is closed or on a different network (mobile data, external WiFi)
+
 ## 1.0.0
 - Initial release
 - Bidirectional WebRTC audio between HA mobile_app devices (P2P, no relay server)

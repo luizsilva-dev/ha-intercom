@@ -14,6 +14,7 @@ devices = []          # [{id, name, service}]
 user_device_map = {}  # user_id -> device_id
 calls = {}            # call_id -> call dict
 sdp_store = {}        # call_id -> {offer: str, answer: str}
+_base_url = ''        # full external URL to this addon's ingress root
 
 def ha_get(path):
     import requests
@@ -78,11 +79,21 @@ def refresh_devices():
     user_device_map = new_map
     log.info(f'User->device map: {user_device_map}')
 
-def get_ingress_url():
-    info = ha_get('/../../addons/self/info') 
+def refresh_base_url():
+    global _base_url
+    external = ''
+    config = ha_get('/config')
+    if config:
+        external = config.get('external_url', '').rstrip('/')
+    ingress = ''
+    info = ha_get('/../../addons/self/info')
     if info:
-        return info.get('data', {}).get('ingress_url', '')
-    return ''
+        ingress = info.get('data', {}).get('ingress_url', '').rstrip('/')
+    if external and ingress:
+        _base_url = external + ingress
+    elif ingress:
+        _base_url = ingress  # relative fallback (same-network only)
+    log.info(f'Notification base URL: {_base_url}')
 
 def send_notification(device_id, title, message, call_id, ingress_url):
     caller_name = title
@@ -686,29 +697,14 @@ def api_call_initiate():
         'started_at': None
     }
     sdp_store[call_id] = {'offer': None, 'answer': None}
-    
-    # Get ingress URL for notification
-    ingress_url = request.headers.get('X-Ingress-Path', '')
-    if not ingress_url:
-        try:
-            import requests as req
-            info = req.get(
-                'http://supervisor/addons/self/info',
-                headers={'Authorization': f'Bearer {SUPERVISOR_TOKEN}'},
-                timeout=5
-            ).json()
-            ingress_url = info.get('data', {}).get('ingress_url', '')
-        except Exception:
-            ingress_url = ''
-    
-    ingress_url = ingress_url.rstrip('/')
+
     caller_name = get_device_name(caller)
     send_notification(
         callee,
         f'Intercom call from {caller_name}',
         'Tap to answer',
         call_id,
-        ingress_url
+        _base_url
     )
     
     return jsonify({'call_id': call_id})
@@ -791,13 +787,15 @@ def api_sdp_answer_get(call_id):
 
 
 if __name__ == '__main__':
-    log.info('Starting Intercom v2.0.0')
+    log.info('Starting Intercom v1.0.0')
     refresh_devices()
+    refresh_base_url()
     # Background refresh every 5 minutes
     def bg_refresh():
         while True:
             time.sleep(300)
             refresh_devices()
+            refresh_base_url()
     t = threading.Thread(target=bg_refresh, daemon=True)
     t.start()
     app.run(host='0.0.0.0', port=8099, debug=False)
