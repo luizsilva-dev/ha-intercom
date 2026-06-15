@@ -1,5 +1,11 @@
 # Changelog — Intercom
 
+## 1.0.6
+- Voice: addon now auto-creates HA scripts at startup for every discovered device (call) and for answer/reject/hangup
+- Scripts have aliases in both Portuguese and English — works with local Assist and Home Assistant Cloud AI in any language
+- Scripts are refreshed every 5 minutes alongside device discovery
+- Simplified setup: only `rest_command` block needed in configuration.yaml (no more intent_script or custom sentences)
+
 ## 1.0.5
 - Voice assistant integration: new endpoints `/api/voice/call`, `/api/voice/answer`, `/api/voice/reject`, `/api/voice/hangup`
 - New addon option `default_caller`: device id used as the caller when a call is started via voice command

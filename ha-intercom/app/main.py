@@ -884,16 +884,76 @@ def api_sdp_answer_get(call_id):
     return Response(sdp, mimetype='text/plain')
 
 
+def _make_script(alias_en, alias_pt, extra_aliases_en, extra_aliases_pt, sequence):
+    return {
+        'alias': alias_en,
+        'aliases': [alias_pt] + extra_aliases_en + extra_aliases_pt,
+        'icon': 'mdi:phone',
+        'mode': 'single',
+        'sequence': sequence,
+    }
+
+def _script_sequence(action, callee_name=None):
+    base_url = 'http://localhost:8099'
+    if action == 'call':
+        return [{'action': 'rest_command.intercom_call', 'data': {'callee_name': callee_name}}]
+    return [{'action': f'rest_command.intercom_{action}'}]
+
+def create_ha_scripts():
+    """Create/update HA scripts for each device and for answer/reject/hangup."""
+    # Per-device call scripts
+    for d in devices:
+        name = d['name']           # e.g. "Cel Luiz"
+        first = name.split()[0] if name else d['id']  # e.g. "Cel" → use full if short
+        label = name               # used in script names
+        script_id = f'intercom_call_{d["id"]}'
+        script = _make_script(
+            alias_en=f'Intercom - Call {label}',
+            alias_pt=f'Intercom - Ligar para {label}',
+            extra_aliases_en=[f'Call {label}', f'Call {label} on intercom'],
+            extra_aliases_pt=[f'Ligar para {label}', f'Chamar {label}', f'Ligar {label}'],
+            sequence=_script_sequence('call', callee_name=d['id']),
+        )
+        result = ha_post(f'/config/script/config/{script_id}', script)
+        log.info(f'Script {script_id}: {"ok" if result is not None else "failed"}')
+
+    # Fixed scripts
+    fixed = [
+        ('intercom_answer',
+         'Intercom - Answer', 'Intercom - Atender',
+         ['Answer the intercom', 'Answer intercom call'],
+         ['Atender intercom', 'Atender a chamada'],
+         'answer'),
+        ('intercom_reject',
+         'Intercom - Reject', 'Intercom - Recusar',
+         ['Reject the intercom', 'Decline intercom call'],
+         ['Recusar intercom', 'Recusar a chamada', 'Rejeitar chamada'],
+         'reject'),
+        ('intercom_hangup',
+         'Intercom - Hang Up', 'Intercom - Desligar',
+         ['Hang up intercom', 'End intercom call'],
+         ['Desligar intercom', 'Encerrar chamada', 'Desligar chamada'],
+         'hangup'),
+    ]
+    for script_id, alias_en, alias_pt, extra_en, extra_pt, action in fixed:
+        script = _make_script(alias_en, alias_pt, extra_en, extra_pt,
+                              _script_sequence(action))
+        result = ha_post(f'/config/script/config/{script_id}', script)
+        log.info(f'Script {script_id}: {"ok" if result is not None else "failed"}')
+
+
 if __name__ == '__main__':
     log.info('Starting Intercom v1.0.0')
     refresh_devices()
     refresh_base_url()
+    create_ha_scripts()
     # Background refresh every 5 minutes
     def bg_refresh():
         while True:
             time.sleep(300)
             refresh_devices()
             refresh_base_url()
+            create_ha_scripts()
     t = threading.Thread(target=bg_refresh, daemon=True)
     t.start()
     app.run(host='0.0.0.0', port=8099, debug=False)

@@ -49,35 +49,30 @@ Optional settings (available in the add-on configuration tab):
 4. The callee receives a push notification with **Answer** and **Reject** buttons
 5. When both sides answer, a peer-to-peer WebRTC audio connection is established directly between the devices
 
-## Voice Assistant (HA Assist)
+## Voice Assistant (HA Assist / Cloud AI)
 
-The add-on can be controlled by voice via HA Assist. Setup takes three steps:
+The add-on automatically creates HA scripts for every discovered device and for answer/reject/hangup. These scripts appear in HA as entities, so both the **local Assist** and the **Home Assistant Cloud AI** can find and run them by name — in any language the AI understands.
 
-### 1. Copy the custom sentences
+### Setup (one-time)
 
-Copy `voice/custom_sentences/pt/` to your HA config directory:
-```
-<ha_config>/custom_sentences/pt/intercom.yaml
-```
+1. Add the contents of `voice/configuration_snippet.yaml` to your `configuration.yaml` and restart HA
+2. The add-on will automatically create scripts like:
+   - `script.intercom_call_cel_luiz` — alias: "Intercom - Call Cel Luiz" / "Intercom - Ligar para Cel Luiz"
+   - `script.intercom_answer` — alias: "Intercom - Answer" / "Intercom - Atender"
+   - `script.intercom_reject` — alias: "Intercom - Reject" / "Intercom - Recusar"
+   - `script.intercom_hangup` — alias: "Intercom - Hang Up" / "Intercom - Desligar"
+3. Optionally set **Default Caller** in the add-on configuration tab (device id used when a voice command starts a call)
 
-### 2. Add to configuration.yaml
+### Voice commands (examples)
 
-Copy the contents of `voice/configuration_snippet.yaml` into your `configuration.yaml`, then restart HA.
+| Portuguese | English | Action |
+|------------|---------|--------|
+| "Ligar para Cel Luiz" | "Call Cel Luiz" | Calls that device |
+| "Atender" / "Atender intercom" | "Answer" / "Answer intercom" | Answers ringing call |
+| "Recusar" / "Recusar a chamada" | "Reject" / "Decline the call" | Rejects ringing call |
+| "Desligar" / "Encerrar chamada" | "Hang up" / "End the call" | Hangs up active call |
 
-### 3. Set the default caller (optional)
-
-In the add-on configuration tab, set **Default Caller** to the device id that voice commands should call from (e.g. `cel_luiz`). If left empty, the first available device is used.
-
-### Voice commands (Portuguese)
-
-| Say | Action |
-|-----|--------|
-| "Ligar para Luiz" | Calls the device matching "Luiz" |
-| "Atender" | Answers the active ringing call |
-| "Recusar" | Rejects the active ringing call |
-| "Desligar" | Hangs up the active call |
-
-The name in "Ligar para [name]" is matched fuzzily — "Luiz" matches a device named `cel_luiz` or `Luiz's Phone`.
+Scripts are recreated automatically every 5 minutes and whenever new devices are discovered.
 
 ## REST API
 
