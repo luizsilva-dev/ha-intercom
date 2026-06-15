@@ -1,5 +1,11 @@
 # Changelog — HA Intercom
 
+## 2.0.2
+- Correção de áudio: `remoteAudio` agora é variável global acessível por `onConnected()`, que chama `.play()` quando ICE conecta
+- `srcObject` criado como `new MediaStream()` antes de `ontrack`, e reassociado ao elemento após adicionar cada faixa
+- Erros de `.play()` agora logados no debug em vez de silenciados
+- Log de `ontrack` mostra o tipo da faixa (`audio`/`video`) para diagnóstico
+
 ## 2.0.1
 - Correção crítica: Dockerfile usava `CMD` em vez de `ENTRYPOINT` — com a imagem base do HA (s6-overlay), isso causava erro "can only run as pid 1" e o add-on não iniciava
 - Removidos supervisor.py e generate_config.py do diretório app/ (não usados no v2.0)

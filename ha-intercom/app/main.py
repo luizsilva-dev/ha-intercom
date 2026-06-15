@@ -324,6 +324,7 @@ let callStart = null;
 let ended = false;
 let offerPollInterval = null;
 let answerPollInterval = null;
+let remoteAudio = null;
 
 function dbg(msg) {
   console.log('[intercom]', msg);
@@ -361,6 +362,7 @@ function onConnected() {
   setStatus('Em chamada');
   document.getElementById('muteBtn').disabled = false;
   startTimer();
+  if (remoteAudio) remoteAudio.play().catch(e => dbg('play err: ' + e));
 }
 
 function endUI(msg) {
@@ -439,12 +441,12 @@ async function startCaller() {
 
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  const remoteAudio = document.getElementById('remoteAudio');
+  remoteAudio = document.getElementById('remoteAudio');
+  remoteAudio.srcObject = new MediaStream();
   pc.ontrack = e => {
-    dbg('ontrack');
-    if (!remoteAudio.srcObject) remoteAudio.srcObject = new MediaStream();
+    dbg('ontrack track=' + e.track.kind);
     remoteAudio.srcObject.addTrack(e.track);
-    remoteAudio.play().catch(()=>{});
+    remoteAudio.play().catch(e2 => dbg('play err: ' + e2));
   };
 
   pc.oniceconnectionstatechange = () => {
@@ -531,12 +533,12 @@ async function startCallee() {
     {urls: 'stun:stun1.l.google.com:19302'}
   ]});
 
-  const remoteAudio = document.getElementById('remoteAudio');
+  remoteAudio = document.getElementById('remoteAudio');
+  remoteAudio.srcObject = new MediaStream();
   pc.ontrack = e => {
-    dbg('ontrack');
-    if (!remoteAudio.srcObject) remoteAudio.srcObject = new MediaStream();
+    dbg('ontrack track=' + e.track.kind);
     remoteAudio.srcObject.addTrack(e.track);
-    remoteAudio.play().catch(()=>{});
+    remoteAudio.play().catch(e2 => dbg('play err: ' + e2));
   };
 
   pc.oniceconnectionstatechange = () => {
