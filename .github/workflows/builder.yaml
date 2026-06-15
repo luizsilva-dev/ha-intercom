@@ -11,6 +11,16 @@ on:
       - main
     paths:
       - "ha-intercom/**"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish image to ghcr.io"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: read
@@ -20,7 +30,7 @@ jobs:
     uses: ./.github/workflows/build-app.yaml
     with:
       app: ha-intercom
-      publish: ${{ github.event_name == 'push' }}
+      publish: ${{ github.event_name == 'push' || inputs.publish == 'true' }}
     permissions:
       contents: read
       packages: write
