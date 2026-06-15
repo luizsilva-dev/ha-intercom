@@ -1,5 +1,10 @@
 # Changelog — HA Intercom
 
+## 2.0.1
+- Correção crítica: Dockerfile usava `CMD` em vez de `ENTRYPOINT` — com a imagem base do HA (s6-overlay), isso causava erro "can only run as pid 1" e o add-on não iniciava
+- Removidos supervisor.py e generate_config.py do diretório app/ (não usados no v2.0)
+- Corrigido mapeamento user_id→device_id: agora lê corretamente `data.device_name` da config entry do mobile_app
+
 ## 2.0.0
 - Reescrita completa do addon do zero (from scratch)
 - Arquitetura simplificada: Flask como unico servidor (sem go2rtc, sem supervisor.py)

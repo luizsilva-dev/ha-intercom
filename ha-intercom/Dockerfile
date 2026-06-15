@@ -7,4 +7,4 @@ RUN apk add --no-cache python3 py3-pip py3-requests \
 WORKDIR /app
 COPY app/ /app/
 
-CMD ["/usr/bin/python3", "/app/main.py"]
+ENTRYPOINT ["/usr/bin/python3", "/app/main.py"]

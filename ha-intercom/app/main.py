@@ -60,25 +60,21 @@ def refresh_devices():
     log.info(f'Found {len(devices)} mobile_app devices: {[d["id"] for d in devices]}')
 
     # Build user->device map from config entries
+    # mobile_app config entry data has user_id and device_name fields
     entries = ha_get('/config/config_entries?domain=mobile_app')
     new_map = {}
     if entries:
         for entry in entries:
-            uid = entry.get('options', {}).get('push_token_registration', {})
-            # Try different paths for user_id in config entry
-            user_id = (entry.get('options', {}).get('user_id') or
-                       entry.get('options', {}).get('webhook_id'))
-            entry_id = entry.get('entry_id', '')
-            # Map by source_user_id if present
-            for key in ['source_user_id', 'user_id']:
-                val = entry.get(key) or entry.get('options', {}).get(key)
-                if val:
-                    # device id from entry title or entry_id
-                    # Try to match with known devices
-                    for d in new_devices:
-                        if d['id'] in (entry.get('title', '').lower().replace(' ', '_') or entry_id):
-                            new_map[val] = d['id']
-                            break
+            data = entry.get('data', {})
+            user_id = data.get('user_id')
+            # device_name in config entry typically matches the notify service id
+            raw_name = data.get('device_name', '')
+            norm = raw_name.lower().replace(' ', '_').replace('-', '_')
+            if user_id and norm:
+                for d in new_devices:
+                    if d['id'] == norm or norm.startswith(d['id']) or d['id'].startswith(norm):
+                        new_map[user_id] = d['id']
+                        break
     user_device_map = new_map
     log.info(f'User->device map: {user_device_map}')
 
