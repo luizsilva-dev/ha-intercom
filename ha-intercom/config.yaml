@@ -1,5 +1,5 @@
 name: Intercom
-version: "1.0.2"
+version: "1.0.3"
 slug: ha_intercom
 description: Bidirectional intercom between HA devices via WebRTC
 url: https://github.com/luizsilva-dev/ha-intercom

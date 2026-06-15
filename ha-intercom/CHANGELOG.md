@@ -1,5 +1,8 @@
 # Changelog — Intercom
 
+## 1.0.3
+- Fix: notification not dismissed after reject — Reject button now calls a server-side GET endpoint (`/api/call/reject-notify/<id>`) that rejects the call and clears the notification without requiring JS execution in a WebView
+
 ## 1.0.2
 - Fix: `external_url` field in HA config can be null — use `or ''` instead of default to avoid crash on startup
 - Fix: removed `/config/config_entries` call that returned 404 via Supervisor proxy; device auto-detection falls back to manual selection in the UI

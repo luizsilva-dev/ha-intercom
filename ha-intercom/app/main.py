@@ -81,7 +81,7 @@ def refresh_base_url():
 def send_notification(device_id, title, message, call_id, ingress_url):
     caller_name = title
     answer_url = f'{ingress_url}/call/{call_id}?role=callee&auto_answer=1'
-    reject_url = f'{ingress_url}/call/{call_id}?role=callee&action=reject'
+    reject_url = f'{ingress_url}/api/call/reject-notify/{call_id}'
     data = {
         'title': title,
         'message': message,
@@ -715,6 +715,18 @@ def api_call_reject(call_id):
     clear_notification(c['caller'], call_id)
     clear_notification(c['callee'], call_id)
     return jsonify({'ok': True})
+
+
+@app.route('/api/call/reject-notify/<call_id>', methods=['GET'])
+def api_call_reject_notify(call_id):
+    """Server-side reject triggered by notification action button (no JS needed)."""
+    from flask import redirect
+    if call_id in calls:
+        c = calls[call_id]
+        calls[call_id]['state'] = 'rejected'
+        clear_notification(c['caller'], call_id)
+        clear_notification(c['callee'], call_id)
+    return redirect(_base_url + '/' if _base_url else '/')
 
 
 @app.route('/api/call/hangup/<call_id>', methods=['POST'])
