@@ -87,6 +87,13 @@ def send_notification(device_id, title, message, call_id, ingress_url):
         'message': message,
         'data': {
             'tag': f'intercom_{call_id}',
+            'channel': 'intercom_call',
+            'importance': 'high',
+            'ttl': 0,
+            'priority': 'high',
+            'sticky': True,
+            'persistent': True,
+            'full_screen_intent': True,
             'actions': [
                 {'action': 'URI', 'title': 'Answer', 'uri': answer_url},
                 {'action': 'URI', 'title': 'Reject', 'uri': reject_url}

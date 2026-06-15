@@ -1,5 +1,8 @@
 # Changelog — Intercom
 
+## 1.0.4
+- Incoming call notification now uses full-screen intent on Android: shows full-screen on locked device (like a phone call) and as a floating heads-up banner when the device is in use
+
 ## 1.0.3
 - Fix: notification not dismissed after reject — Reject button now calls a server-side GET endpoint (`/api/call/reject-notify/<id>`) that rejects the call and clears the notification without requiring JS execution in a WebView
 
