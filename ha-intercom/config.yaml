@@ -3,6 +3,7 @@ version: "1.0.6"
 slug: ha_intercom
 description: Bidirectional intercom between HA devices via WebRTC
 url: https://github.com/luizsilva-dev/ha-intercom
+image: ghcr.io/luizsilva-dev/ha-intercom/{arch}-ha-intercom
 arch:
   - aarch64
   - amd64

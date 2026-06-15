@@ -1,0 +1,27 @@
+name: Builder
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ha-intercom/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "ha-intercom/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-app.yaml
+    with:
+      app: ha-intercom
+      publish: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
